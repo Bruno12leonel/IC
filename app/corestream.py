@@ -2204,7 +2204,7 @@ class CoreStream(base.Clusterer):
         self._build()    
     
     def save_runtime_timestamp(self):
-        m_directory = os.path.join(os.getcwd(), "home/job/results/corestream_v4/runtime")
+        m_directory = os.path.join(os.getcwd(), "home/u770214/job/results/corestream_v4/runtime")
         
         try:
             if not os.path.exists(m_directory):
@@ -2220,7 +2220,7 @@ class CoreStream(base.Clusterer):
             print(e)
             
     def save_runtime_final(self):
-        m_directory = os.path.join(os.getcwd(), "home/job/results/corestream_v4/runtime")
+        m_directory = os.path.join(os.getcwd(), "home/u770214/job/results/corestream_v4/runtime")
         
         try:
             if not os.path.exists(m_directory):
