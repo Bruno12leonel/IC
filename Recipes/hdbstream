@@ -1,0 +1,35 @@
+Bootstrap: docker
+From: ufscar/ubuntu_mpich:latest
+
+%help
+    coresgdb - agrupamento sumarizado
+
+%files
+   ./app_hastream/. /opt
+
+%post
+    # Change to tmp directory to download temporary files.
+    cd /tmp
+
+    # Install essential software, languages and libraries. 
+    apt-get -qq -y update
+    
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get -qq install -y --no-install-recommends tzdata apt-utils 
+
+    ln -fs /usr/share/zoneinfo/America/New_York /etc/localtime 
+    dpkg-reconfigure --frontend noninteractive  tzdata
+    
+    apt-get -qq -y update 
+    apt-get -qq install -y --no-install-recommends \
+        python3-dev \
+        python3-pip
+
+    pip install river
+    pip install networkx
+    pip install -U scikit-learn
+    pip install pandas
+    pip install numpy
+
+%runscript
+    exec $@
