@@ -2434,6 +2434,8 @@ if __name__ == "__main__":
     df_mc_to_points = data.copy()
     df_mc_to_points['id_mc'] = -1
 
+    data = data.to_numpy()
+
     #denstream = CoreStream(m_minPoints= int(sys.argv[2]) , n_samples_init= int(sys.argv[3]), epsilon= float(sys.argv[4]))   
 
     hdbstream = HDBStream(200, step=2, decaying_factor=0.015, mu=2, n_samples_init=10000, epsilon = 0.006, stream_speed=100)
