@@ -2434,7 +2434,8 @@ if __name__ == "__main__":
     data = data.to_numpy()
 
     df_mc_to_points = data.copy()
-    df_mc_to_points['id_mc'] = -1
+    #df_mc_to_points['id_mc'] = -1
+    df_mc_to_points.insert(loc= 2, column='id_mc', value= -1)
 
     #denstream = CoreStream(m_minPoints= int(sys.argv[2]) , n_samples_init= int(sys.argv[3]), epsilon= float(sys.argv[4]))   
 
