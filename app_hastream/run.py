@@ -2073,9 +2073,9 @@ class HDBStream(base.Clusterer):
             # self.df_runtime.at[i, 'dendrogram']     = (end_dendrogram - start_dendrogram)
             # self.df_runtime.at[i, 'selection']      = (end_selection - start_selection)
             # self.df_runtime.at[i, 'total']          = (end_time_minpts - start_time_minpts)
-            if self.timestamp > 390:
-                self.save_partitions_final(matrix_partitions, len_mcs, mst.getVertices(), minpts)
-                self.plot(matrix_partitions, len_mcs, mst.getVertices(), minpts, df_partition)
+            
+            self.save_partitions_final(matrix_partitions, len_mcs, mst.getVertices(), minpts)
+            self.plot(matrix_partitions, len_mcs, mst.getVertices(), minpts, df_partition)
 
             G          = None
             mrg        = None
