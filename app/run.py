@@ -15,7 +15,7 @@ if __name__ == "__main__":
 
     scaler.fit(data)
 
-    data = pd.DataFrame(data=scaler.transform(data), columns=['x', 'y'])
+    data = pd.DataFrame(data=scaler.transform(data))
 
     data = data.to_numpy()
 
