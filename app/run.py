@@ -8,6 +8,9 @@ if __name__ == "__main__":
 
     data = pd.read_csv(sys.argv[1], sep=',')
 
+    #variável de pontos iniciais
+    initial_points = int(sys.argv[2])
+
     scaler = MinMaxScaler()
 
     scaler.fit(data)
@@ -18,7 +21,7 @@ if __name__ == "__main__":
 
     #denstream = CoreStream(m_minPoints= int(sys.argv[2]) , n_samples_init= int(sys.argv[3]), epsilon= float(sys.argv[4]))   
 
-    corestream = CoreStream(200,
+    corestream = CoreStream(int(sys.argv[3]),
                         min_cluster_size = 25,
                         step=2,
                         decaying_factor=0.025,
@@ -35,7 +38,7 @@ if __name__ == "__main__":
         
         count_points += 1
         
-        if not (count_points % sys.argv[2]) and count_points != sys.argv[2]:
+        if not (count_points % initial_points) and count_points != initial_points:
             corestream.predict_one()
             corestream.save_runtime_timestamp()
     corestream.save_runtime_final()
