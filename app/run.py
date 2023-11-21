@@ -35,7 +35,7 @@ if __name__ == "__main__":
         
         count_points += 1
         
-        if not (count_points % 7000) and count_points != 7000:
+        if not (count_points % sys.argv[2]) and count_points != sys.argv[2]:
             corestream.predict_one()
             corestream.save_runtime_timestamp()
     corestream.save_runtime_final()
