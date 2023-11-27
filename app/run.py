@@ -20,11 +20,6 @@ from sklearn.neighbors import NearestNeighbors
 from sklearn.cluster import AgglomerativeClustering
 from sklearn.preprocessing import MinMaxScaler
 
-import pandas as pd
-from river import stream
-from sklearn.preprocessing import MinMaxScaler
-import sys
-
 class Vertex():
 
     s_idCounter = 0
@@ -2643,7 +2638,6 @@ class CoreStream(base.Clusterer):
                 plt.close()
         except FileNotFoundError as e:
             print(e)
-
 if __name__ == "__main__":
 
     data = pd.read_csv(sys.argv[1], sep=',')
