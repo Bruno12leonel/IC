@@ -21,7 +21,7 @@ if __name__ == "__main__":
 
     #denstream = CoreStream(m_minPoints= int(sys.argv[2]) , n_samples_init= int(sys.argv[3]), epsilon= float(sys.argv[4]))   
 
-    corestream = CoreStream(int(sys.arg[3]),
+    corestream = CoreStream(int(sys.arg[3])),
                         min_cluster_size = 25,
                         step=2,
                         decaying_factor=0.025,
