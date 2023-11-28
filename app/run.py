@@ -2145,7 +2145,7 @@ class CoreStream(base.Clusterer):
             # Partitions HDBSCAN
             if self.save_partitions:
                 clusterer = hdbscan.HDBSCAN(min_cluster_size=10, min_samples=minpts, match_reference_implementation = True)
-                clusterer.fit(df_partition[['x', 'y']])
+                clusterer.fit(df_partition.drop("id_bubble", axis=1))
                 labels = clusterer.labels_
             
                 p = 0
@@ -2607,42 +2607,45 @@ class CoreStream(base.Clusterer):
         m_directory = os.path.join(os.getcwd(), "results/datasets")
         
         try:
-            if not os.path.exists(m_directory):
-                os.makedirs(m_directory)
-                
-            sns.set_context('poster')
-            sns.set_style('white')
-            sns.set_color_codes()
-
-            plot_kwds = {'s' : 1, 'linewidths':0}
-
-            plt.figure(figsize=(12, 10))
-
+            
             for i, row in df_bubbles_to_points.iterrows():
                 if row['id_bubble'] not in self.p_data_bubbles and row['id_bubble'] > -1:
                     df_bubbles_to_points.at[i, 'id_bubble'] = -1
                 elif ((-1) * row['id_bubble']) not in self.o_data_bubbles and row['id_bubble'] < -1:
                     df_bubbles_to_points.at[i, 'id_bubble'] = -1
-
-            for key, value in self.p_data_bubbles.items():
-                plt.gca().add_patch(plt.Circle((value.getRep(timestamp)[0], value.getRep(timestamp)[1]), value.getExtent(timestamp), color='red', fill=False))
-
-            for key, value in self.o_data_bubbles.items():
-                plt.gca().add_patch(plt.Circle((value.getRep(timestamp)[0], value.getRep(timestamp)[1]), value.getExtent(timestamp), color='blue', fill=False))
-
+            
+            if not os.path.exists(m_directory):
+                os.makedirs(m_directory)
+            
             df_bubbles_to_points[(df_bubbles_to_points['id_bubble'] != -1)].to_csv('results/datasets/data_t' + str(self.timestamp) + '.csv', index=False)
+            
+            if self.plot:
+                sns.set_context('poster')
+                sns.set_style('white')
+                sns.set_color_codes()
 
-            df_plot = df_bubbles_to_points[(df_bubbles_to_points['id_bubble'] != -1)]
+                plot_kwds = {'s' : 1, 'linewidths':0}
 
-            cmap = plt.get_cmap('tab10', len(list(set([row['id_bubble'] for i, row in df_plot.iterrows()]))))
+                plt.figure(figsize=(12, 10))
 
-            plt.title("Timestamp: " + str(self.timestamp) + " | # Points: " + str(df_plot.shape[0]) + " | # DBs: " + str(len(self.p_data_bubbles)), fontsize=20)
-            plt.scatter(df_plot['x'], df_plot['y'], c='green', **plot_kwds)
-            plt.savefig("results/datasets/plot_dataset_t" + str(self.timestamp) + ".png")
-            plt.close()
+                for key, value in self.p_data_bubbles.items():
+                    plt.gca().add_patch(plt.Circle((value.getRep(timestamp)[0], value.getRep(timestamp)[1]), value.getExtent(timestamp), color='red', fill=False))
+
+                for key, value in self.o_data_bubbles.items():
+                    plt.gca().add_patch(plt.Circle((value.getRep(timestamp)[0], value.getRep(timestamp)[1]), value.getExtent(timestamp), color='blue', fill=False))
+
+                df_plot = df_bubbles_to_points[(df_bubbles_to_points['id_bubble'] != -1)]
+
+                cmap = plt.get_cmap('tab10', len(list(set([row['id_bubble'] for i, row in df_plot.iterrows()]))))
+
+                plt.title("Timestamp: " + str(self.timestamp) + " | # Points: " + str(df_plot.shape[0]) + " | # DBs: " + str(len(self.p_data_bubbles)), fontsize=20)
+                plt.scatter(df_plot['x'], df_plot['y'], c='green', **plot_kwds)
+                plt.savefig("results/datasets/plot_dataset_t" + str(self.timestamp) + ".png")
+                plt.close()
             
         except FileNotFoundError as e:
             print(e)
+            
 if __name__ == "__main__":
 
     data = pd.read_csv(sys.argv[1], sep=',')
