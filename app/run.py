@@ -1868,7 +1868,7 @@ class CoreStream(base.Clusterer):
         # initiate merged status
         merged_status = False
 
-        p = df_bubbles_to_points[(df_bubbles_to_points['x'] == point[0]) & (df_bubbles_to_points['y'] == point[1])]
+        pos = self._n_samples_seen - 1
 
         if len(self.p_data_bubbles) != 0:
             # try to merge p into its nearest p-micro-cluster c_p
@@ -1882,7 +1882,7 @@ class CoreStream(base.Clusterer):
                     # keep updated p-micro-cluster
                     self.p_data_bubbles[closest_pdb_key] = updated_pdb
 
-                    df_bubbles_to_points.loc[p.index[0], 'id_bubble'] = closest_pdb_key
+                    df_bubbles_to_points.loc[pos, 'id_bubble'] = closest_pdb_key
 
                     merged_status = True
 
@@ -1915,14 +1915,14 @@ class CoreStream(base.Clusterer):
                             updated_odb.setID(new_key)
                             self.p_data_bubbles[new_key] = updated_odb
 
-                        df_bubbles_to_points.loc[p.index[0], 'id_bubble'] = new_key
+                        df_bubbles_to_points.loc[pos, 'id_bubble'] = new_key
                         df_bubbles_to_points['id_bubble']                 = df_bubbles_to_points['id_bubble'].replace((-1) * closest_odb_key, new_key)
                             
                     else:
                         self.o_data_bubbles[closest_odb_key] = updated_odb
 
                         # Outliers have our key negative
-                        df_bubbles_to_points.loc[p.index[0], 'id_bubble'] = (-1) * closest_odb_key
+                        df_bubbles_to_points.loc[pos, 'id_bubble'] = (-1) * closest_odb_key
                     
                     merged_status = True
                     
@@ -1937,7 +1937,7 @@ class CoreStream(base.Clusterer):
                 
                 self.o_data_bubbles[key_o] = db_from_p
                 
-                df_bubbles_to_points.loc[p.index[0], 'id_bubble'] = (-1) * key_o
+                df_bubbles_to_points.loc[pos, 'id_bubble'] = (-1) * key_o
 
                 merged_status = True
 
@@ -1946,7 +1946,7 @@ class CoreStream(base.Clusterer):
             db_from_p           = DataBubble(x=point, timestamp=self.timestamp, decaying_factor=self.decaying_factor)
             self.o_data_bubbles = {2: db_from_p}
 
-            df_bubbles_to_points.loc[p.index[0], 'id_bubble'] = -2
+            df_bubbles_to_points.loc[pos, 'id_bubble'] = -2
             
             merged_status = True
 
@@ -2001,6 +2001,7 @@ class CoreStream(base.Clusterer):
         self.time_period_check()
         
         self.data_bubbles_to_points(self.timestamp)
+        
         if self.runtime:
             start_time_total = time.time()
         
@@ -2115,14 +2116,14 @@ class CoreStream(base.Clusterer):
             print("> Time for dendrogram: ", end_dendrogram - start_dendrogram)
             
             # Time Selection Clusters
-            start_selection = time.time()
-            selection       = dendrogram.clusterSelection()
-
-            # Partitions Corestream MinPts
-            cont             = 1
-            partition_bubble = {}
-
             if self.save_partitions:
+                start_selection = time.time()
+                selection       = dendrogram.clusterSelection()
+
+                # Partitions Corestream MinPts
+                cont             = 1
+                partition_bubble = {}
+            
                 for n in selection:
                     it = iter(n.getVertices())
 
@@ -2142,18 +2143,19 @@ class CoreStream(base.Clusterer):
             print("> Time for Selection Clusters: ", end_selection - start_selection)
             
             # Partitions HDBSCAN
-            clusterer = hdbscan.HDBSCAN(min_cluster_size=10, min_samples=minpts, match_reference_implementation = True)
-            clusterer.fit(df_partition[['x', 'y']])
-            labels = clusterer.labels_
+            if self.save_partitions:
+                clusterer = hdbscan.HDBSCAN(min_cluster_size=10, min_samples=minpts, match_reference_implementation = True)
+                clusterer.fit(df_partition[['x', 'y']])
+                labels = clusterer.labels_
             
-            p = 0
-            for i in labels:
-                matrix_partitions_hdbscan[minpts][p] = i
-                p += 1
+                p = 0
+                for i in labels:
+                    matrix_partitions_hdbscan[minpts][p] = i
+                    p += 1
 
-            # Plot HDBSCAN result
-            if self.plot:
-                self.plot_hdbscan_result(minpts, labels, df_partition)
+                # Plot HDBSCAN result
+                if self.plot:
+                    self.plot_hdbscan_result(minpts, labels, df_partition)
             
             # Runtime
             if self.runtime:
@@ -2168,10 +2170,11 @@ class CoreStream(base.Clusterer):
             # GraphViz MST        -> mst_csg.getGraphVizString(self.timestamp, i)
             # Plot MST            -> mst_csg.buildAbsGraph(self.timestamp)
             # GraphViz Dendrogram -> if i == 200: dendrogram.getGraphVizString()
-        
+
         if self.save_partitions:
-            self.save_partitions_bubble_and_points_minpts(len_points, matrix_partitions_bubbles, matrix_partitions_hdbscan, min_pts_min, min_pts_max) 
-            self.save_partitions_final(matrix_partitions, len_dbs, csg.getVertices(), min_pts_min, min_pts_max)
+            self.save_partitions_bubble_and_points_minpts(len_points, matrix_partitions_bubbles, matrix_partitions_hdbscan, min_pts_min, min_pts_max)
+            #self.save_partitions_final(matrix_partitions, len_dbs, csg.getVertices(), min_pts_min, min_pts_max)
+        
         if self.plot:
             self.plot_partitions(matrix_partitions, len_dbs, min_pts_min, min_pts_max, df_partition)
         
@@ -2238,6 +2241,7 @@ class CoreStream(base.Clusterer):
         count_potential = 0
         min_db = max_db = 0
         epsilon         = {}
+        pos_point       = 0
         
         for i in range(len_buffer):
             
@@ -2263,9 +2267,9 @@ class CoreStream(base.Clusterer):
                     epsilon[labels[i]] = self.p_data_bubbles[labels[i]].getExtent(self.timestamp)
                 
             max_db = max(max_db, self.p_data_bubbles[labels[i]].getN())
-
-            point = df_bubbles_to_points[(df_bubbles_to_points['x'] == self._init_buffer[i][0]) & (df_bubbles_to_points['y'] == self._init_buffer[i][1])]
-            df_bubbles_to_points.at[point.index[0], 'id_bubble'] = labels[i]
+    
+            df_bubbles_to_points.at[pos_point, 'id_bubble'] = labels[i]
+            pos_point += 1
         
         # outliers data_bubbles
         if count_potential != len(self.p_data_bubbles):
@@ -2600,43 +2604,43 @@ class CoreStream(base.Clusterer):
             print(e)
 
     def data_bubbles_to_points(self, timestamp):
-        
         m_directory = os.path.join(os.getcwd(), "results/datasets")
         
         try:
             if not os.path.exists(m_directory):
                 os.makedirs(m_directory)
+                
+            sns.set_context('poster')
+            sns.set_style('white')
+            sns.set_color_codes()
 
-                sns.set_context('poster')
-                sns.set_style('white')
-                sns.set_color_codes()
+            plot_kwds = {'s' : 1, 'linewidths':0}
 
-                plot_kwds = {'s' : 1, 'linewidths':0}
+            plt.figure(figsize=(12, 10))
 
-                plt.figure(figsize=(12, 10))
+            for i, row in df_bubbles_to_points.iterrows():
+                if row['id_bubble'] not in self.p_data_bubbles and row['id_bubble'] > -1:
+                    df_bubbles_to_points.at[i, 'id_bubble'] = -1
+                elif ((-1) * row['id_bubble']) not in self.o_data_bubbles and row['id_bubble'] < -1:
+                    df_bubbles_to_points.at[i, 'id_bubble'] = -1
 
-                for i, row in df_bubbles_to_points.iterrows():
-                    if row['id_bubble'] not in self.p_data_bubbles and row['id_bubble'] > -1:
-                        df_bubbles_to_points.at[i, 'id_bubble'] = -1
-                    elif ((-1) * row['id_bubble']) not in self.o_data_bubbles and row['id_bubble'] < -1:
-                        df_bubbles_to_points.at[i, 'id_bubble'] = -1
+            for key, value in self.p_data_bubbles.items():
+                plt.gca().add_patch(plt.Circle((value.getRep(timestamp)[0], value.getRep(timestamp)[1]), value.getExtent(timestamp), color='red', fill=False))
 
-                for key, value in self.p_data_bubbles.items():
-                    plt.gca().add_patch(plt.Circle((value.getRep(timestamp)[0], value.getRep(timestamp)[1]), value.getExtent(timestamp), color='red', fill=False))
+            for key, value in self.o_data_bubbles.items():
+                plt.gca().add_patch(plt.Circle((value.getRep(timestamp)[0], value.getRep(timestamp)[1]), value.getExtent(timestamp), color='blue', fill=False))
 
-                for key, value in self.o_data_bubbles.items():
-                    plt.gca().add_patch(plt.Circle((value.getRep(timestamp)[0], value.getRep(timestamp)[1]), value.getExtent(timestamp), color='blue', fill=False))
+            df_bubbles_to_points[(df_bubbles_to_points['id_bubble'] != -1)].to_csv('results/datasets/data_t' + str(self.timestamp) + '.csv', index=False)
 
-                df_bubbles_to_points[(df_bubbles_to_points['id_bubble'] != -1)].to_csv('results/datasets/data_t' + str(self.timestamp) + '.csv', index=False)
+            df_plot = df_bubbles_to_points[(df_bubbles_to_points['id_bubble'] != -1)]
 
-                df_plot = df_bubbles_to_points[(df_bubbles_to_points['id_bubble'] != -1)]
+            cmap = plt.get_cmap('tab10', len(list(set([row['id_bubble'] for i, row in df_plot.iterrows()]))))
 
-                cmap = plt.get_cmap('tab10', len(list(set([row['id_bubble'] for i, row in df_plot.iterrows()]))))
-
-                plt.title("Timestamp: " + str(self.timestamp) + " | # Points: " + str(df_plot.shape[0]) + " | # DBs: " + str(len(self.p_data_bubbles)), fontsize=20)
-                plt.scatter(df_plot['x'], df_plot['y'], c='green', **plot_kwds)
-                plt.savefig("results/datasets/plot_dataset_t" + str(self.timestamp) + ".png")
-                plt.close()
+            plt.title("Timestamp: " + str(self.timestamp) + " | # Points: " + str(df_plot.shape[0]) + " | # DBs: " + str(len(self.p_data_bubbles)), fontsize=20)
+            plt.scatter(df_plot['x'], df_plot['y'], c='green', **plot_kwds)
+            plt.savefig("results/datasets/plot_dataset_t" + str(self.timestamp) + ".png")
+            plt.close()
+            
         except FileNotFoundError as e:
             print(e)
 if __name__ == "__main__":
