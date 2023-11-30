@@ -1341,6 +1341,10 @@ class Node:
         eps_max = self.m_parent.m_scaleValue
         eps_min = self.m_scaleValue        
             
+        if eps_max == 0:
+            eps_max = 0.0000000001
+        if eps_min == 0:
+            eps_max = 0.0000000001
         
         self.m_stability = len(self.m_vertices) * ((1 / eps_min) - (1 / eps_max))
 
