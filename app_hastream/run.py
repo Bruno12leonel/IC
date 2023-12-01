@@ -2582,7 +2582,7 @@ if __name__ == "__main__":
                       stream_speed=100,
                       percent=0.15,
                       method_summarization='single',
-                      runtime=False,
+                      runtime=True,
                       plot=False,
                       save_partitions=True)
 
