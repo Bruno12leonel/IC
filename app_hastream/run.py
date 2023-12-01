@@ -1344,7 +1344,7 @@ class Node:
         if eps_max == 0:
             eps_max = 0.0000000001
         if eps_min == 0:
-            eps_max = 0.0000000001
+            eps_min = 0.0000000001
         
         self.m_stability = len(self.m_vertices) * ((1 / eps_min) - (1 / eps_max))
 
