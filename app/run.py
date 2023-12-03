@@ -988,6 +988,11 @@ class Node:
 
         eps_max = self.m_parent.m_scaleValue
         eps_min = self.m_scaleValue
+
+        if eps_max == 0:
+            eps_max = 0.0000000001
+        if eps_min == 0:
+            eps_min = 0.0000000001
         
         # É o somatório dos pesos vezes a densidade minima (quando o Cluster foi criado) + a densidade máxima (quando o DB saiu do cluster)
         self.m_stability = len(self.m_vertices) * ((1 / eps_min) - (1 / eps_max))
@@ -2675,7 +2680,7 @@ if __name__ == "__main__":
                         percent=0.15,
                         method_summarization='single',
                         stream_speed=100,
-                        runtime=False,
+                        runtime=True,
                         plot=False,
                         save_partitions=True)
 
