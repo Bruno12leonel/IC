@@ -2693,5 +2693,5 @@ if __name__ == "__main__":
         
         if not (count_points % initial_points) and count_points != initial_points:
             corestream.predict_one()
-            #corestream.save_runtime_timestamp()
-    #corestream.save_runtime_final()
+            corestream.save_runtime_timestamp()
+    corestream.save_runtime_final()
