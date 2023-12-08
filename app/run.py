@@ -988,7 +988,7 @@ class Node:
 
         eps_max = self.m_parent.m_scaleValue
         eps_min = self.m_scaleValue
-
+        
         if eps_max == 0:
             eps_max = 0.0000000001
         if eps_min == 0:
@@ -2047,6 +2047,8 @@ class CoreStream(base.Clusterer):
         
         if self.runtime:
             self.df_runtime_final.at[self.timestamp, 'core_sg'] = (time.time() - start_time_total)
+            self.df_runtime_stream = None
+            self.df_runtime_stream = pd.DataFrame(columns=['minpts', 'core_sg', 'mst', 'dendrogram', 'selection', 'total'])
         
         print("Computing Multiple Hierarchies:")
         start_hierarchies = time.time()
@@ -2164,12 +2166,12 @@ class CoreStream(base.Clusterer):
             
             # Runtime
             if self.runtime:
-                self.df_runtime_stream.at[i, 'minpts']     = minpts
-                self.df_runtime_stream.at[i, 'core_sg']    = end_hierarchy - start_hierarchy
-                self.df_runtime_stream.at[i, 'mst']        = end_mst - start_mst
-                self.df_runtime_stream.at[i, 'dendrogram'] = end_dendrogram - start_dendrogram
-                self.df_runtime_stream.at[i, 'selection']  = end_selection - start_selection
-                self.df_runtime_stream.at[i, 'total']      = time.time() - start_time_total
+                self.df_runtime_stream.at[minpts, 'minpts']     = minpts
+                self.df_runtime_stream.at[minpts, 'core_sg']    = end_hierarchy - start_hierarchy
+                self.df_runtime_stream.at[minpts, 'mst']        = end_mst - start_mst
+                self.df_runtime_stream.at[minpts, 'dendrogram'] = end_dendrogram - start_dendrogram
+                self.df_runtime_stream.at[minpts, 'selection']  = end_selection - start_selection
+                self.df_runtime_stream.at[minpts, 'total']      = time.time() - start_time_total
             
             # GraphViz CORE-SG    -> csg.getGraphVizString(self.timestamp, i)
             # GraphViz MST        -> mst_csg.getGraphVizString(self.timestamp, i)
@@ -2178,7 +2180,7 @@ class CoreStream(base.Clusterer):
 
         if self.save_partitions:
             self.save_partitions_bubble_and_points_minpts(len_points, matrix_partitions_bubbles, matrix_partitions_hdbscan, min_pts_min, min_pts_max)
-            #self.save_partitions_final(matrix_partitions, len_dbs, csg.getVertices(), min_pts_min, min_pts_max)
+            self.save_partitions_final(matrix_partitions, len_dbs, csg.getVertices(), min_pts_min, min_pts_max)
         
         if self.plot:
             self.plot_partitions(matrix_partitions, len_dbs, min_pts_min, min_pts_max, df_partition)
@@ -2489,7 +2491,7 @@ class CoreStream(base.Clusterer):
                 #end   = start + self.n_samples_init
                 #plt.scatter(data[int(start):int(end), 0], data[int(start):int(end), 1], **plot_kwds, label=legend)
                 
-                plt.scatter(df_partition['x'], df_partition['y'], **plot_kwds, label=legend)
+                plt.scatter(df_partition[0], df_partition[1], **plot_kwds, label=legend)
                 plt.legend(bbox_to_anchor=(-0.1, 1.02, 1, 0.2), loc="lower left", borderaxespad=0, fontsize=26)
                 plt.savefig("results/plots/plot_bubbles_t" + str(self.timestamp) + "/minpts_" + str(i) + ".png")
                 plt.close('all')
@@ -2519,7 +2521,7 @@ class CoreStream(base.Clusterer):
         title += "Len Points: " + str(len(labels))
         plt.title(title)
 
-        plt.scatter(df_partition['x'], df_partition['y'], c=labels, cmap='magma', **plot_kwds)
+        plt.scatter(df_partition[0], df_partition[0], c=labels, cmap='magma', **plot_kwds)
 
         plt.savefig("results/plots/plot_bubbles_t" + str(self.timestamp) + "/minpts _" + str(minpts) + "_hdbscan.png")
         
@@ -2644,7 +2646,7 @@ class CoreStream(base.Clusterer):
                 cmap = plt.get_cmap('tab10', len(list(set([row['id_bubble'] for i, row in df_plot.iterrows()]))))
 
                 plt.title("Timestamp: " + str(self.timestamp) + " | # Points: " + str(df_plot.shape[0]) + " | # DBs: " + str(len(self.p_data_bubbles)), fontsize=20)
-                plt.scatter(df_plot['x'], df_plot['y'], c='green', **plot_kwds)
+                plt.scatter(df_plot[0], df_plot[1], c='green', **plot_kwds)
                 plt.savefig("results/datasets/plot_dataset_t" + str(self.timestamp) + ".png")
                 plt.close()
             
@@ -2682,7 +2684,7 @@ if __name__ == "__main__":
                         stream_speed=100,
                         runtime=True,
                         plot=False,
-                        save_partitions=True)
+                        save_partitions=False)
 
     count_points = 0
 
