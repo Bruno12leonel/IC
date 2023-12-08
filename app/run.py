@@ -2123,8 +2123,9 @@ class CoreStream(base.Clusterer):
             print("> Time for dendrogram: ", end_dendrogram - start_dendrogram)
             
             # Time Selection Clusters
+            start_selection = time.time()
             if self.save_partitions:
-                start_selection = time.time()
+                
                 selection       = dendrogram.clusterSelection()
 
                 # Partitions Corestream MinPts
