@@ -2677,7 +2677,7 @@ if __name__ == "__main__":
     corestream = CoreStream(int(sys.argv[3]),
                         min_cluster_size = 25,
                         step=2,
-                        decaying_factor=0.025,
+                        decaying_factor=0.015,
                         mu=2, n_samples_init=initial_points, 
                         epsilon=0.005,
                         percent=0.15,
