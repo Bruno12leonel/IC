@@ -210,7 +210,7 @@ class DataBubble(metaclass=ABCMeta):
         
         if self.last_edit_time != timestamp:
             self.fade(timestamp)
-        
+            
         self.last_edit_time = timestamp
         
         self.N += 1
@@ -231,6 +231,7 @@ class DataBubble(metaclass=ABCMeta):
         for key, val in self.linear_sum.items():
             self.linear_sum[key]  *= ff
             self.squared_sum[key] *= ff
+    
 
     def merge(self, cluster):
         self.N += cluster.N
@@ -1869,6 +1870,94 @@ class CoreStream(base.Clusterer):
             
         return math.sqrt(distance)
     
+    # Merge from Hastream
+    def _merge_has(self, point):
+        # initiate merged status
+        merged_status = False
+        
+        pos = self._n_samples_seen - 1
+
+        if len(self.p_data_bubbles) != 0:
+            # try to merge p into its nearest p-micro-cluster c_p
+            closest_pdb_key = self._get_closest_cluster_key(point, self.p_data_bubbles)
+            
+            if closest_pdb_key != -1:
+                updated_pdb     = copy.deepcopy(self.p_data_bubbles[closest_pdb_key])
+                updated_pdb.insert(point, self.timestamp)
+
+                if updated_pdb.getExtent(self.timestamp) <= self.epsilon:
+                    # keep updated p-micro-cluster
+                    self.p_data_bubbles[closest_pdb_key]   = updated_pdb
+                    df_bubbles_to_points.loc[pos, 'id_db'] = closest_pdb_key
+
+                    merged_status = True
+
+        if not merged_status and len(self.o_data_bubbles) != 0:
+            
+            closest_odb_key = self._get_closest_cluster_key(point, self.o_data_bubbles)
+            
+            if closest_pdb_key != -1:
+                updated_odb     = copy.deepcopy(self.o_data_bubbles[closest_odb_key])
+                updated_odb.insert(point, self.timestamp)
+
+                if updated_pdb.getExtent(self.timestamp) <= self.epsilon:
+                    # keep updated o-micro-cluster
+                    if updated_odb.getWeight(self.timestamp) > self.mu * self.beta:
+                        # it has grown into a p-micro-cluster
+                        del self.o_data_bubbles[closest_odb_key]
+                        updated_odb.setStaticCenter(self.timestamp)
+
+                        new_key = 0
+
+                        if not list(self.p_data_bubbles.keys()):
+                            updated_omc.setID(0)
+                            self.p_data_bubbles[0] = updated_odb
+                        else:
+                            new_key = 1
+
+                            while new_key in self.p_data_bubbles:
+                                new_key += 1
+
+                            updated_odb.setID(new_key)
+
+                            self.p_data_bubbles[new_key] = updated_odb
+
+                        df_bubbles_to_points.loc[pos, 'id_db'] = new_key
+
+                        df_bubbles_to_points['id_db'] = df_bubbles_to_points['id_db'].replace((-1) * closest_odb_key, new_key)
+
+                    else:
+                        self.o_data_bubbles[closest_odb_key] = updated_odb                    
+
+                        # Outliers have our key negative
+                        df_bubbles_to_points.loc[pos, 'id_db'] = (-1) * closest_odb_key
+
+                else:
+                    # create a new o-data_bubble by p and add it to o_micro_clusters
+                    db_from_p = DataBubble(x=point, timestamp=self.timestamp, decaying_factor=self.decaying_factor)
+
+                    key_o = 2
+
+                    while key_o in self.o_data_bubbles:
+                        key_o += 1
+
+                    self.o_data_bubbles[key_o] = db_from_p
+
+                    df_bubbles_to_points.loc[pos, 'id_db'] = (-1) * key_o
+
+                merged_status = True
+
+        # when p is not merged and o-micro-cluster set is empty
+        if not merged_status and len(self.o_data_bubbles) == 0:
+            db_from_p = DataBubble(x=point, timestamp=self.timestamp, decaying_factor=self.decaying_factor)
+
+            self.o_data_bubbles = {2: db_from_p}
+
+            df_bubbles_to_points.loc[pos, 'id_db'] = -2
+            
+            merged_status = True
+    
+    # Merge from CoreStream
     def _merge(self, point):
         # initiate merged status
         merged_status = False
@@ -1921,7 +2010,7 @@ class CoreStream(base.Clusterer):
                             self.p_data_bubbles[new_key] = updated_odb
 
                         df_bubbles_to_points.loc[pos, 'id_bubble'] = new_key
-                        df_bubbles_to_points['id_bubble']                 = df_bubbles_to_points['id_bubble'].replace((-1) * closest_odb_key, new_key)
+                        df_bubbles_to_points['id_bubble']          = df_bubbles_to_points['id_bubble'].replace((-1) * closest_odb_key, new_key)
                             
                     else:
                         self.o_data_bubbles[closest_odb_key] = updated_odb
@@ -2123,9 +2212,8 @@ class CoreStream(base.Clusterer):
             print("> Time for dendrogram: ", end_dendrogram - start_dendrogram)
             
             # Time Selection Clusters
-            start_selection = time.time()
             if self.save_partitions:
-                
+                start_selection = time.time()
                 selection       = dendrogram.clusterSelection()
 
                 # Partitions Corestream MinPts
@@ -2147,8 +2235,8 @@ class CoreStream(base.Clusterer):
                         matrix_partitions_bubbles[minpts][cont] = partition_bubble[row['id_bubble']]
                     cont += 1
             
-            end_selection = time.time()
-            print("> Time for Selection Clusters: ", end_selection - start_selection)
+                end_selection = time.time()
+                print("> Time for Selection Clusters: ", end_selection - start_selection)
             
             # Partitions HDBSCAN
             if self.save_partitions:
@@ -2356,7 +2444,6 @@ class CoreStream(base.Clusterer):
 
         # Initialization
         if not self.initialized:
-            
             if self.method_summarization == 'epsilon':
                 self._init_buffer.append(self.BufferItem(x, self.timestamp, False))
             else:
@@ -2365,7 +2452,6 @@ class CoreStream(base.Clusterer):
             
             if len(self._init_buffer) == self.n_samples_init:
                 print("entrando no initial()")
-                
                 if self.method_summarization == 'epsilon':
                     self._initial_epsilon()
                 else:
@@ -2522,7 +2608,7 @@ class CoreStream(base.Clusterer):
         title += "Len Points: " + str(len(labels))
         plt.title(title)
 
-        plt.scatter(df_partition[0], df_partition[0], c=labels, cmap='magma', **plot_kwds)
+        plt.scatter(df_partition[0], df_partition[1], c=labels, cmap='magma', **plot_kwds)
 
         plt.savefig("results/plots/plot_bubbles_t" + str(self.timestamp) + "/minpts _" + str(minpts) + "_hdbscan.png")
         
@@ -2677,7 +2763,7 @@ if __name__ == "__main__":
     corestream = CoreStream(int(sys.argv[3]),
                         min_cluster_size = 25,
                         step=2,
-                        decaying_factor=0.015,
+                        decaying_factor=float(sys.argv[4]),
                         mu=2, n_samples_init=initial_points, 
                         epsilon=0.005,
                         percent=0.15,
