@@ -2576,7 +2576,7 @@ if __name__ == "__main__":
     data = data.to_numpy()
     
     hdbstream = HDBStream(int(sys.argv[3]), step=2,
-                      decaying_factor=0.015,
+                      decaying_factor=float(sys.argv[4]),
                       mu=2, n_samples_init=initial_points,
                       epsilon = 0.006,
                       stream_speed=100,
