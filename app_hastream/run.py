@@ -2562,6 +2562,9 @@ if __name__ == "__main__":
 
     data = pd.read_csv(sys.argv[1], sep=',')
     initial_points = int(sys.argv[2])
+    runtime = bool(sys.argv[5])
+    plot = bool(sys.argv[6])
+    save_partitions = bool(sys.argv[7])
     
     scaler = MinMaxScaler()
 
@@ -2582,9 +2585,9 @@ if __name__ == "__main__":
                       stream_speed=100,
                       percent=0.15,
                       method_summarization='single',
-                      runtime=True,
-                      plot=False,
-                      save_partitions=True)
+                      runtime=runtime,
+                      plot=plot,
+                      save_partitions=save_partitions)
 
     count_points = 0
     
