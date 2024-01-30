@@ -2746,6 +2746,9 @@ if __name__ == "__main__":
 
     #variável de pontos iniciais
     initial_points = int(sys.argv[2])
+    runtime = bool(sys.argv[5])
+    plot = bool(sys.argv[6])
+    save_partitions = bool(sys.argv[7])
 
     scaler = MinMaxScaler()
 
@@ -2769,9 +2772,9 @@ if __name__ == "__main__":
                         percent=0.15,
                         method_summarization='single',
                         stream_speed=100,
-                        runtime=True,
-                        plot=False,
-                        save_partitions=True)
+                        runtime=runtime,
+                        plot=plot,
+                        save_partitions=save_partitions)
 
     count_points = 0
 
