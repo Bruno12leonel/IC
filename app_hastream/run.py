@@ -222,8 +222,8 @@ class MicroCluster(metaclass=ABCMeta):
         #return res
     '''
     def getRadius(self, timestamp):        
-        ff = self.fading_function(timestamp - self.last_edit_time)
-        w = self.getWeight(timestamp)        
+        ff  = self.fading_function(timestamp - self.last_edit_time)
+        w   = self.getWeight(timestamp)        
         cf1 = self.calc_cf1(ff)
         cf2 = self.calc_cf2(ff)        
         res = 0      
@@ -232,13 +232,10 @@ class MicroCluster(metaclass=ABCMeta):
             x1 = cf2[i] / w
             x2 = math.pow(cf1[i]/w , 2)
             
-            tmp = x1 - x2 
+            tmp = x1 - x2
             
-            if tmp < 0.0:
-                tmp = (1/10)**2
-            res += math.sqrt(tmp)
+            res += math.sqrt(tmp) if tmp > 0 else (1/10 * 1/10)
             
-        
         #1.8            
         return (res / len(cf1)) * 1.5
         
@@ -252,6 +249,9 @@ class MicroCluster(metaclass=ABCMeta):
     def insert(self, x, timestamp):
         if(self.last_edit_time != timestamp):
             self.fade(timestamp)
+        
+        self.last_edit_time = timestamp
+        
         self.add(x)
     
     def fade(self, timestamp):
@@ -262,10 +262,7 @@ class MicroCluster(metaclass=ABCMeta):
         for key, val in x.items():            
             self.linear_sum[key]  *= ff
             self.squared_sum[key] *= ff
-            
-                
-        self.last_edit_time = timestamp
-
+        
     def merge(self, cluster):
         self.N += cluster.N
         
@@ -303,7 +300,7 @@ class MicroCluster(metaclass=ABCMeta):
     def getCenterDistance(self, instance, timestamp):
         distance = 0.0
         center = self.getCenter(timestamp)
-        for i in range(len(center)):
+        for i in range(len(instance)):
             d = center[i] - instance[i]
             distance += d * d
         return math.sqrt(distance)
@@ -1340,7 +1337,7 @@ class Node:
 
         eps_max = self.m_parent.m_scaleValue
         eps_min = self.m_scaleValue        
-            
+        
         if eps_max == 0:
             eps_max = 0.0000000001
         if eps_min == 0:
@@ -1859,19 +1856,19 @@ class HDBStream(base.Clusterer):
 
         if len(self.p_micro_clusters) != 0:
             # try to merge p into its nearest p-micro-cluster c_p
-            closest_pdb_key = self._get_closest_cluster_key(point, self.p_micro_clusters)
-            updated_pdb     = copy.deepcopy(self.p_micro_clusters[closest_pdb_key])
-            updated_pdb.insert(point, self.timestamp)
+            closest_pmc_key = self._get_closest_cluster_key(point, self.p_micro_clusters)
+            updated_pmc     = copy.deepcopy(self.p_micro_clusters[closest_pmc_key])
+            updated_pmc.insert(point, self.timestamp)
             
-            if updated_pdb.getRadius(self.timestamp) <= self.epsilon:
+            if updated_pmc.getRadius(self.timestamp) <= self.epsilon:
                 # keep updated p-micro-cluster
-                self.p_micro_clusters[closest_pdb_key] = updated_pdb
+                self.p_micro_clusters[closest_pmc_key] = updated_pmc
                 merged_status = True
                 
-                df_mc_to_points.loc[pos, 'id_mc'] = closest_pdb_key
+                df_mc_to_points.loc[pos, 'id_mc'] = closest_pmc_key
                 
-                if self.p_micro_clusters[closest_pdb_key].hasCenterChanged(self.m_movementThreshold, self.epsilon, self.timestamp):
-                    self.p_micro_clusters[closest_pdb_key].setStaticCenter(self.timestamp)
+                if self.p_micro_clusters[closest_pmc_key].hasCenterChanged(self.m_movementThreshold, self.epsilon, self.timestamp):
+                    self.p_micro_clusters[closest_pmc_key].setStaticCenter(self.timestamp)
 
         if not merged_status and len(self.o_micro_clusters) != 0:
             
@@ -1936,6 +1933,93 @@ class HDBStream(base.Clusterer):
             
             merged_status = True
 
+    # Merge from CoreStream
+    def _merge_cs(self, point):
+        # initiate merged status
+        merged_status = False
+
+        pos = self._n_samples_seen - 1
+
+        if len(self.p_micro_clusters) != 0:
+            # try to merge p into its nearest p-micro-cluster c_p
+            closest_pmc_key = self._get_closest_cluster_key(point, self.p_micro_clusters)
+            
+            if closest_pmc_key != -1:
+                updated_pmc = copy.deepcopy(self.p_micro_clusters[closest_pmc_key])
+                updated_pmc.insert(point, self.timestamp)
+                
+                if updated_pmc.getRadius(self.timestamp) <= self.epsilon:
+                    # keep updated p-micro-cluster
+                    self.p_micro_clusters[closest_pmc_key] = updated_pmc
+
+                    df_mc_to_points.loc[pos, 'id_mc'] = closest_pmc_key
+
+                    merged_status = True
+
+        if not merged_status and len(self.o_micro_clusters) != 0:
+            closest_omc_key = self._get_closest_cluster_key(point, self.o_micro_clusters)
+            
+            if closest_omc_key != -1:
+                updated_omc = copy.deepcopy(self.p_micro_clusters[closest_omc_key])
+                updated_omc.insert(point, self.timestamp)
+
+                if updated_omc.getRadius(self.timestamp) <= self.epsilon:
+                    # keep updated o-micro-cluster
+                    weight_omc = updated_omc.getWeight(self.timestamp)
+                    
+                    if weight_omc > self.mu * self.beta:
+                        # it has grown into a p-micro-cluster
+                        del self.o_micro_clusters[closest_omc_key]
+
+                        new_key = 0
+                        
+                        if len(list(self.p_micro_clusters.keys())) == 0:
+                            updated_odb.setID(0)
+                            self.p_micro_clusters[0] = updated_omc
+                        else:
+                            new_key = 1
+                            
+                            while new_key in self.p_micro_clusters:
+                                new_key += 1
+                            
+                            updated_omc.setID(new_key)
+                            self.p_micro_clusters[new_key] = updated_omc
+
+                        df_mc_to_points.loc[pos, 'id_mc'] = new_key
+                        df_mc_to_points['id_mc']          = df_mc_to_points['id_mc'].replace((-1) * closest_omc_key, new_key)
+                            
+                    else:
+                        self.p_micro_clusters[closest_omc_key] = updated_omc
+
+                        # Outliers have our key negative
+                        df_mc_to_points.loc[pos, 'id_mc'] = (-1) * closest_omc_key
+                    
+                    merged_status = True
+                    
+            if not merged_status:
+                # create a new o-data_bubble by p and add it to o_data_bubbles
+                mc_from_p = MicroCluster(x=point, timestamp=self.timestamp, decaying_factor=self.decaying_factor)
+
+                key_o = 2
+
+                while key_o in self.o_micro_clusters:
+                    key_o += 1
+                
+                self.o_micro_clusters[key_o] = mc_from_p
+                
+                df_mc_to_points.loc[pos, 'id_mc'] = (-1) * key_o
+
+                merged_status = True
+
+        # when p is not merged and o-micro-cluster set is empty
+        if not merged_status and len(self.o_micro_clusters) == 0:
+            mc_from_p             = MicroCluster(x=point, timestamp=self.timestamp, decaying_factor=self.decaying_factor)
+            self.o_micro_clusters = {2: mc_from_p}
+
+            df_mc_to_points.loc[pos, 'id_mc'] = -2
+            
+            merged_status = True
+            
     def _is_directly_density_reachable(self, c_p, c_q):
         if c_p.calc_weight() > self.mu and c_q.calc_weight() > self.mu:
             # check distance of two clusters and compare with 2*epsilon
@@ -1985,8 +2069,11 @@ class HDBStream(base.Clusterer):
 
         self.micro_clusters_to_points(self.timestamp)
         
+        print("\n>> Timestamp: ", self.timestamp)
         print("> count_potential", len(self.p_micro_clusters))
         print("> count_outlier", len(self.o_micro_clusters))
+        
+        #return
         
         if len(self.p_micro_clusters) < self.m_minPoints:
             print("no building possible since num_potential_dbs < minPoints")
@@ -2310,11 +2397,14 @@ class HDBStream(base.Clusterer):
                 self._init_buffer.append(list(x.values()))
             
             if len(self._init_buffer) == self.n_samples_init:
+                print("entrando no initial()")
                 if self.method_summarization == 'epsilon':
                     self._initial_epsilon()
                 else:
                     self._initial_single_linkage()
-                    
+                
+                print("-------------------")
+                print("entrando no build()")
                 self._build()
                 self.initialized = True
                 del self._init_buffer
@@ -2333,8 +2423,6 @@ class HDBStream(base.Clusterer):
     def predict_one(self, sample_weight=None):        
         # This function handles the case when a clustering request arrives.
         # implementation of the DBSCAN algorithm proposed by Ester et al.
-        
-        print("\n>> Timestamp: ", self.timestamp)
         
         if not self.initialized:
             return 0
@@ -2410,7 +2498,7 @@ class HDBStream(base.Clusterer):
             #start = ((self._n_samples_seen/7000 ) - 1) * self.n_samples_init
             #end   = start + self.n_samples_init
 
-            plt.scatter(df_partition['x'], df_partition['y'], c='black', **plot_kwds, label=legend)
+            plt.scatter(df_partition[0], df_partition[1], c='black', **plot_kwds, label=legend)
             #plt.scatter(data[int(start):int(end), 0], data[int(start):int(end), 1], **plot_kwds, label=legend)
             #plt.scatter(data[0], data[1], **plot_kwds, label=legend)
             plt.legend(bbox_to_anchor=(-0.1, 1.02, 1, 0.2), loc="lower left", borderaxespad=0, fontsize=28)
@@ -2436,7 +2524,7 @@ class HDBStream(base.Clusterer):
         title += "Len Points: " + str(len(labels))
         plt.title(title)
 
-        plt.scatter(df_partition['x'], df_partition['y'], c=labels, cmap='magma', **plot_kwds)
+        plt.scatter(df_partition[0], df_partition[1], c=labels, cmap='magma', **plot_kwds)
 
         m_directory = os.path.join(os.getcwd(), "results/plots")
         sub_dir     = os.path.join(m_directory, "plot_mcs_t" + str(self.timestamp))
@@ -2551,7 +2639,7 @@ class HDBStream(base.Clusterer):
                 cmap = plt.get_cmap('tab10', len(list(set([row['id_mc'] for i, row in df_plot.iterrows()]))))
 
                 plt.title("Timestamp: " + str(self.timestamp) + " | # Points: " + str(df_plot.shape[0]) + " | # MCs: " + str(len(self.p_micro_clusters)), fontsize=20)
-                plt.scatter(df_plot['x'], df_plot['y'], c='green', **plot_kwds)
+                plt.scatter(df_plot[0], df_plot[1], c='green', **plot_kwds)
                 plt.savefig("results/datasets/plot_dataset_t" + str(self.timestamp) + ".png")
                 plt.close()
             
