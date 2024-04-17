@@ -232,7 +232,6 @@ class DataBubble(metaclass=ABCMeta):
             self.linear_sum[key]  *= ff
             self.squared_sum[key] *= ff
     
-
     def merge(self, cluster):
         self.N += cluster.N
         
@@ -1777,7 +1776,7 @@ class CoreStream(base.Clusterer):
         beta:            float = 0.75, 
         mu:              float = 2,
         epsilon:         float = 0.02,
-        n_samples_init:  int   = 1000,
+        n_samples_init:  int   = 2000,
         stream_speed:    int   = 100,
         percent                = 0.1,
         method_summarization   = 'single_linkage',
@@ -1865,7 +1864,7 @@ class CoreStream(base.Clusterer):
         distance = 0
         
         for i in range(len(x1)):
-            d        = x1[i] - x2[i]
+            d         = x1[i] - x2[i]
             distance += d * d
             
         return math.sqrt(distance)
@@ -1965,7 +1964,7 @@ class CoreStream(base.Clusterer):
         pos = self._n_samples_seen - 1
 
         if len(self.p_data_bubbles) != 0:
-            # try to merge p into its nearest p-micro-cluster c_p
+            # try to merge p into its nearest p-data_bubble c_p
             closest_pdb_key = self._get_closest_cluster_key(point, self.p_data_bubbles)
             
             if closest_pdb_key != -1:
@@ -1973,14 +1972,14 @@ class CoreStream(base.Clusterer):
                 updated_pdb.insert(point, self.timestamp)
                 
                 if updated_pdb.getExtent(self.timestamp) <= self.epsilon:
-                    # keep updated p-micro-cluster
+                    # keep updated p-data_bubble
                     self.p_data_bubbles[closest_pdb_key] = updated_pdb
 
                     df_bubbles_to_points.loc[pos, 'id_bubble'] = closest_pdb_key
 
                     merged_status = True
 
-        if not merged_status and len(self.o_data_bubbles) != 0:
+        if not merged_status:
             closest_odb_key = self._get_closest_cluster_key(point, self.o_data_bubbles)
             
             if closest_odb_key != -1:
@@ -1997,17 +1996,11 @@ class CoreStream(base.Clusterer):
 
                         new_key = 0
                         
-                        if len(list(self.p_data_bubbles.keys())) == 0:
-                            updated_odb.setID(0)
-                            self.p_data_bubbles[0] = updated_odb
-                        else:
-                            new_key = 1
+                        while new_key in self.p_data_bubbles:
+                            new_key += 1
                             
-                            while new_key in self.p_data_bubbles:
-                                new_key += 1
-                            
-                            updated_odb.setID(new_key)
-                            self.p_data_bubbles[new_key] = updated_odb
+                        updated_odb.setID(new_key)
+                        self.p_data_bubbles[new_key] = updated_odb
 
                         df_bubbles_to_points.loc[pos, 'id_bubble'] = new_key
                         df_bubbles_to_points['id_bubble']          = df_bubbles_to_points['id_bubble'].replace((-1) * closest_odb_key, new_key)
@@ -2020,29 +2013,27 @@ class CoreStream(base.Clusterer):
                     
                     merged_status = True
                     
-            if not merged_status:
-                # create a new o-data_bubble by p and add it to o_data_bubbles
-                db_from_p = DataBubble(x=point, timestamp=self.timestamp, decaying_factor=self.decaying_factor)
+        if not merged_status:
+            # create a new o-data_bubble by p and add it to o_data_bubbles
+            db_from_p = DataBubble(x=point, timestamp=self.timestamp, decaying_factor=self.decaying_factor)
 
-                key_o = 2
+            key_o = 2
 
-                while key_o in self.o_data_bubbles:
-                    key_o += 1
-                
-                self.o_data_bubbles[key_o] = db_from_p
-                
-                df_bubbles_to_points.loc[pos, 'id_bubble'] = (-1) * key_o
+            while key_o in self.o_data_bubbles:
+                key_o += 1
 
-                merged_status = True
+            self.o_data_bubbles[key_o] = db_from_p
+
+            df_bubbles_to_points.loc[pos, 'id_bubble'] = (-1) * key_o
+
+            merged_status = True
 
         # when p is not merged and o-micro-cluster set is empty
-        if not merged_status and len(self.o_data_bubbles) == 0:
-            db_from_p           = DataBubble(x=point, timestamp=self.timestamp, decaying_factor=self.decaying_factor)
-            self.o_data_bubbles = {2: db_from_p}
-
-            df_bubbles_to_points.loc[pos, 'id_bubble'] = -2
-            
-            merged_status = True
+        #if not merged_status and len(self.o_data_bubbles) == 0:
+        #    db_from_p           = DataBubble(x=point, timestamp=self.timestamp, decaying_factor=self.decaying_factor)
+        #    self.o_data_bubbles = {2: db_from_p}
+        #    df_bubbles_to_points.loc[pos, 'id_bubble'] = -2
+        #    merged_status = True
 
     def _is_directly_density_reachable(self, c_p, c_q):
         if c_p._weight(self.timestamp) > self.mu and c_q._weight(self.timestamp) > self.mu:
@@ -2094,10 +2085,8 @@ class CoreStream(base.Clusterer):
 
         self.time_period_check()
         
-        self.data_bubbles_to_points(self.timestamp)
-        
         if self.runtime:
-            start_time_total = time.time()
+            start_coresg = time.time()
         
         print("> count_potential", len(self.p_data_bubbles))
         print("> count_outlier", len(self.o_data_bubbles))
@@ -2135,7 +2124,7 @@ class CoreStream(base.Clusterer):
         csg = CoreSG(mst_max, knng, self.timestamp)
         
         if self.runtime:
-            self.df_runtime_final.at[self.timestamp, 'core_sg'] = (time.time() - start_time_total)
+            self.df_runtime_final.at[self.timestamp, 'core_sg'] = (time.time() - start_coresg)
             self.df_runtime_stream = None
             self.df_runtime_stream = pd.DataFrame(columns=['minpts', 'core_sg', 'mst', 'dendrogram', 'selection', 'total'])
         
@@ -2145,8 +2134,8 @@ class CoreStream(base.Clusterer):
         end_hierarchies   = time.time()
         
         if self.runtime:
-            self.df_runtime_final.at[self.timestamp, 'data_bubbles']         = len(self.p_data_bubbles)
             self.df_runtime_final.at[self.timestamp, 'timestamp']            = self.timestamp
+            self.df_runtime_final.at[self.timestamp, 'data_bubbles']         = len(self.p_data_bubbles)
             self.df_runtime_final.at[self.timestamp, 'mrg']                  = end_mrg - start_mrg
             self.df_runtime_final.at[self.timestamp, 'mst']                  = end_mst - start_mst
             self.df_runtime_final.at[self.timestamp, 'multiple_hierarchies'] = end_hierarchies - start_hierarchies
@@ -2168,11 +2157,14 @@ class CoreStream(base.Clusterer):
 
     def computeMulipleHierarchies(self, csg, min_pts_min, min_pts_max):
 
-        df_partition = df_bubbles_to_points[(df_bubbles_to_points['id_bubble'] != -1)]
-        len_points   = df_partition.shape[0]
-        len_dbs      = len(csg.getVertices())
-        
         if self.save_partitions:
+            #df_partition = df_bubbles_to_points[(df_bubbles_to_points['id_bubble'] != -1)]
+            df_partition = self.remove_oldest_points_in_bubbles_timestamp()
+            len_points   = df_partition.shape[0]
+            len_dbs      = len(csg.getVertices())
+
+            self.data_bubbles_to_points(self.timestamp)
+        
             matrix_partitions         = [[-1 for j in range(len_dbs + 10)] for i in range(self.m_minPoints + 10)]
             matrix_partitions_bubbles = [[-1 for j in range(len_points + 10)] for i in range(self.m_minPoints + 10)]
             matrix_partitions_hdbscan = [[-1 for j in range(len_points + 10)] for i in range(self.m_minPoints + 10)]
@@ -2209,7 +2201,8 @@ class CoreStream(base.Clusterer):
             dendrogram.build()
             end_dendrogram   = time.time()
             
-            print("> Time for dendrogram: ", end_dendrogram - start_dendrogram)
+            end_time_total = time.time()
+            print("> Total Time MinPts: ", end_time_total - start_time_total)
             
             # Time Selection Clusters
             if self.save_partitions:
@@ -2236,10 +2229,11 @@ class CoreStream(base.Clusterer):
                     cont += 1
             
                 end_selection = time.time()
-                print("> Time for Selection Clusters: ", end_selection - start_selection)
             
             # Partitions HDBSCAN
             if self.save_partitions:
+                start_hdbscan = time.time()
+                
                 clusterer = hdbscan.HDBSCAN(min_cluster_size=10, min_samples=minpts, match_reference_implementation = True)
                 clusterer.fit(df_partition.drop("id_bubble", axis=1))
                 labels = clusterer.labels_
@@ -2248,6 +2242,8 @@ class CoreStream(base.Clusterer):
                 for i in labels:
                     matrix_partitions_hdbscan[minpts][p] = i
                     p += 1
+                
+                end_hdbscan = time.time()
 
                 # Plot HDBSCAN result
                 if self.plot:
@@ -2256,11 +2252,11 @@ class CoreStream(base.Clusterer):
             # Runtime
             if self.runtime:
                 self.df_runtime_stream.at[minpts, 'minpts']     = minpts
-                self.df_runtime_stream.at[minpts, 'core_sg']    = end_hierarchy - start_hierarchy
-                self.df_runtime_stream.at[minpts, 'mst']        = end_mst - start_mst
-                self.df_runtime_stream.at[minpts, 'dendrogram'] = end_dendrogram - start_dendrogram
-                self.df_runtime_stream.at[minpts, 'selection']  = end_selection - start_selection
-                self.df_runtime_stream.at[minpts, 'total']      = time.time() - start_time_total
+                self.df_runtime_stream.at[minpts, 'core_sg']    = (end_hierarchy - start_hierarchy)
+                self.df_runtime_stream.at[minpts, 'mst']        = (end_mst - start_mst)
+                self.df_runtime_stream.at[minpts, 'dendrogram'] = (end_dendrogram - start_dendrogram)
+                self.df_runtime_stream.at[minpts, 'selection']  = (end_selection - start_selection)
+                self.df_runtime_stream.at[minpts, 'total']      = (end_time_total - start_time_total)
             
             # GraphViz CORE-SG    -> csg.getGraphVizString(self.timestamp, i)
             # GraphViz MST        -> mst_csg.getGraphVizString(self.timestamp, i)
@@ -2275,7 +2271,7 @@ class CoreStream(base.Clusterer):
             self.plot_partitions(matrix_partitions, len_dbs, min_pts_min, min_pts_max, df_partition)
         
         # reset df_bubbles_to_points['id_bubble'] in timestamp
-        df_bubbles_to_points['id_bubble'] = -1
+        #df_bubbles_to_points['id_bubble'] = -1
     
     def _expand_cluster(self, db, neighborhood):
         for idx in neighborhood:
@@ -2318,7 +2314,8 @@ class CoreStream(base.Clusterer):
                     
         end = time.time()
         
-        self.df_runtime_final.at[self.timestamp, 'summarization'] = end - start if self.runtime else None
+        if self.runtime:
+            self.df_runtime_final.at[self.timestamp, 'summarization'] = end - start
         
         print("> Time for Summarization: ", end - start)
     
@@ -2460,7 +2457,9 @@ class CoreStream(base.Clusterer):
                 print("-------------------")
                 print("entrando no build()")
                 self._build()
-                self.save_runtime_timestamp() if self.runtime else None
+                
+                if self.runtime:
+                    self.save_runtime_timestamp()
                 
                 self.initialized = True
                 
@@ -2485,6 +2484,9 @@ class CoreStream(base.Clusterer):
             return 0
         
         self._build()
+        
+        if self.runtime:
+            self.save_runtime_timestamp()
             
     def save_partitions_final(self, matrix_partitions, count_DB, vertices, min_pts_min, min_pts_max):
         m_directory = os.path.join(os.getcwd(), "results/flat_solutions")
@@ -2697,17 +2699,44 @@ class CoreStream(base.Clusterer):
         except FileNotFoundError as e:
             print(e)
 
-    def data_bubbles_to_points(self, timestamp):
-        m_directory = os.path.join(os.getcwd(), "results/datasets")
+    def remove_oldest_points_in_bubbles_timestamp(self):
         
-        try:
-            
-            for i, row in df_bubbles_to_points.iterrows():
+        # Remove oldest objects from removed DBs
+        for i, row in df_bubbles_to_points.iterrows():
+            if i <= self._n_samples_seen:
                 if row['id_bubble'] not in self.p_data_bubbles and row['id_bubble'] > -1:
                     df_bubbles_to_points.at[i, 'id_bubble'] = -1
                 elif ((-1) * row['id_bubble']) not in self.o_data_bubbles and row['id_bubble'] < -1:
                     df_bubbles_to_points.at[i, 'id_bubble'] = -1
+        
+        # Remove oldest objects inside of DBs
+        max_id         = max(self.p_data_bubbles.keys())
+        labels_visited = np.zeros(max_id + 1)
+        diff_points    = np.zeros(max_id + 1)
+        
+        for i in range(self._n_samples_seen):
+            id_db = df_bubbles_to_points.loc[i, 'id_bubble']
             
+            if id_db > -1:
+                if not labels_visited[id_db] and id_db in self.p_data_bubbles:
+                    labels_visited[id_db] = df_bubbles_to_points[df_bubbles_to_points['id_bubble'] == id_db].shape[0]
+                    n = self.p_data_bubbles[id_db]._weight(self.timestamp)
+                    
+                    diff_points[id_db] = int(labels_visited[id_db] - n)
+                    
+                if diff_points[id_db]:
+                    diff_points[id_db] -= 1
+                    df_bubbles_to_points.loc[i, 'id_bubble'] = -1
+                    
+        del labels_visited
+        del diff_points 
+        
+        return df_bubbles_to_points[df_bubbles_to_points['id_bubble'] != -1]
+     
+    def data_bubbles_to_points(self, timestamp):
+        m_directory = os.path.join(os.getcwd(), "results/datasets")
+        
+        try:
             if not os.path.exists(m_directory):
                 os.makedirs(m_directory)
             
