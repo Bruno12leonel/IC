@@ -2739,3 +2739,4 @@ if __name__ == "__main__":
     
         if not (count_points % initial_points) and count_points != initial_points:
             hdbstream.predict_one()
+    hdbstream.save_runtime_final()
