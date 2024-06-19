@@ -2727,8 +2727,8 @@ if __name__ == "__main__":
                       percent=0.15,
                       method_summarization='single',
                       runtime=True,
-                      plot=False,
-                      save_partitions=True)
+                      plot=True,
+                      save_partitions=False)
 
     count_points = 0
     
