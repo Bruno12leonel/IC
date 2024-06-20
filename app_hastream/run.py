@@ -2687,7 +2687,7 @@ class HDBStream(base.Clusterer):
                 for key, value in self.p_micro_clusters.items():
                     plt.gca().add_patch(plt.Circle((value.getCenter(timestamp)[0], value.getCenter(timestamp)[1]), value.getRadius(timestamp), color='red', fill=False))
 
-                for key, value in self.o_mmicro_clusters.items():
+                for key, value in self.o_micro_clusters.items():
                     plt.gca().add_patch(plt.Circle((value.getCenter(timestamp)[0], value.getCenter(timestamp)[1]), value.getRadius(timestamp), color='blue', fill=False))
 
                 df_plot = df_mc_to_points[(df_mc_to_points['id_mc'] != -1)]
