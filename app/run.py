@@ -2793,6 +2793,7 @@ if __name__ == "__main__":
                         min_cluster_size = 25,
                         step=2,
                         decaying_factor=float(sys.argv[4]),
+                        beta=float(sys.argv[5]),
                         mu=2, n_samples_init=initial_points, 
                         epsilon=0.005,
                         percent=0.15,
