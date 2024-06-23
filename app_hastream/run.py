@@ -2721,6 +2721,7 @@ if __name__ == "__main__":
     
     hdbstream = HDBStream(int(sys.argv[3]), step=2,
                       decaying_factor=float(sys.argv[4]),
+                      beta = float(sys.argv[5]),
                       mu=2, n_samples_init=initial_points,
                       epsilon = 0.006,
                       stream_speed=100,
