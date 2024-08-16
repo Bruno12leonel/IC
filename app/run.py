@@ -514,11 +514,6 @@ class MutualReachabilityGraph(AbstractGraph):
         self.m_minPts  = minPts
         self.G         = G
         self.timestamp = timestamp
-        self.ids       = []
-        
-        # plot DB core distance
-        self.id_db     = 344
-        self.neighbour = 0
 
         for db in dbs:
             v = Vertex(db, timestamp)
@@ -590,29 +585,17 @@ class MutualReachabilityGraph(AbstractGraph):
                 neighbours  = self.getNeighbourhood(current, vertices)
                 countPoints = current.getDataBubble()._weight(self.timestamp)
                 neighbourC  = None
-                
-                #print("<<< Vertice", current.getID())
 
                 for n in neighbours:
-                    weight      = n.getVertex().getDataBubble()._weight(self.timestamp)
+                    weight       = n.getVertex().getDataBubble()._weight(self.timestamp)
                     countPoints += weight
-                    
-                    #print("<<<<<<< Vertice", n.getVertex().getID())
-                    
-                    if current.getID() == self.id_db:
-                        #print('Dist neghbour: ', n.getDistance())
-                        #print('ID: ', n.getVertex().getID())
-                        self.ids.append(n.getVertex().getID())
                     
                     if self.knng.getEdge(current, n.getVertex()) is None:
                         self.knng.setEdge(current, n.getVertex())
                         
                     if countPoints >= minPts:
-                        countPoints   -= weight
-                        neighbourC     = n
-                        
-                        if current.getID() == self.id_db:
-                            self.neighbour = n.getVertex().getID()
+                        countPoints -= weight
+                        neighbourC   = n
                         
                         break
                 
@@ -1796,7 +1779,6 @@ class CoreStream(base.Clusterer):
         self.n_samples_init       = n_samples_init
         self.stream_speed         = stream_speed
         self.mst                  = None
-        self.mst_mult             = None
         self.m_minPoints          = m_minPoints
         self.min_cluster_size     = min_cluster_size
         self.step                 = step
@@ -2103,16 +2085,19 @@ class CoreStream(base.Clusterer):
             db.setStaticCenter(self.timestamp)
         
         G = nx.Graph()
-    
+        
+        # MRG --
         start_mrg = time.time()
         mrg       = MutualReachabilityGraph(G, self.p_data_bubbles.values(), self.m_minPoints, self.timestamp)
         mrg.buildGraph()
         end_mrg   = time.time()
         
         print("> Time for MRG: ", end_mrg - start_mrg)
+        # ------
         
         knng = mrg.getKnngGraph()
         
+        # MST --
         start_mst = time.time()
         T         = nx.minimum_spanning_tree(G)
         mst_max   = MinimalSpaningTree(T)
@@ -2120,6 +2105,7 @@ class CoreStream(base.Clusterer):
         end_mst   = time.time()
         
         print("> Time for MST:", end_mst - start_mst)
+        # ------
         
         csg = CoreSG(mst_max, knng, self.timestamp)
         
@@ -2127,6 +2113,9 @@ class CoreStream(base.Clusterer):
             self.df_runtime_final.at[self.timestamp, 'core_sg'] = (time.time() - start_coresg)
             self.df_runtime_stream = None
             self.df_runtime_stream = pd.DataFrame(columns=['minpts', 'core_sg', 'mst', 'dendrogram', 'selection', 'total'])
+        
+        self.m_update = Updating(mrg, mst_max, csg)
+        self.mst      = mst_max
         
         print("Computing Multiple Hierarchies:")
         start_hierarchies = time.time()
@@ -2144,9 +2133,6 @@ class CoreStream(base.Clusterer):
         
         print("\n****************************************************************************************")
         
-        self.m_update = Updating(mrg, mst_max, csg)
-        self.mst      = mst_max
-        
         # Plot MRG      -> mrg.buildAbsGraph()
         # Plot KNNG     -> knng.buildAbsGraph(self.timestamp)
         # Plot MST Max  -> mst_max.buildAbsGraph(self.timestamp)
@@ -2155,7 +2141,7 @@ class CoreStream(base.Clusterer):
         # GraphViz KNNG -> knng.getGraphVizString()
         # GraphViz CSG  -> csg.getGraphVizString()
 
-    def computeMulipleHierarchies(self, csg, min_pts_min, min_pts_max):
+    def computeMulipleHierarchies(self, csg, minpts_min, minpts_max):
 
         if self.save_partitions:
             #df_partition = df_bubbles_to_points[(df_bubbles_to_points['id_bubble'] != -1)]
@@ -2169,32 +2155,32 @@ class CoreStream(base.Clusterer):
             matrix_partitions_bubbles = [[-1 for j in range(len_points + 10)] for i in range(self.m_minPoints + 10)]
             matrix_partitions_hdbscan = [[-1 for j in range(len_points + 10)] for i in range(self.m_minPoints + 10)]
 
-        for minpts in range(min_pts_max, min_pts_min - 1, -self.step):
+        for minpts in range(minpts_max, minpts_min - 1, -self.step):
             
             start_time_total = time.time()
             
             print("\n-------------------------------------------------------------------------------------")
             print("MinPts: " + str(minpts))
             
-            start_hierarchy = time.time()
-            csg.computeHierarchyMinPts(minpts)
-            end_hierarchy   = time.time()
-            
-            print("> Time for CORE-SG edges: ", end_hierarchy - start_hierarchy)
-            
-            # MST
-            start_mst   = time.time()
-            G           = csg.getGraphNetworkx()
-            T           = nx.minimum_spanning_tree(G, weight='weight')
-            mst_csg     = MinimalSpaningTree(T)
-            mst_csg.buildGraph()
-            end_mst     = time.time()
-            
-            print("> Time for MST: ", end_mst - start_mst)
-            
-            self.m_update = Updating(None, mst_csg, csg)
-            self.mst_mult = mst_csg
-            
+            if minpts != minpts_max:
+                start_hierarchy = time.time()
+                csg.computeHierarchyMinPts(minpts)
+                end_hierarchy   = time.time()
+
+                print("> Time for CORE-SG edges: ", end_hierarchy - start_hierarchy)
+
+                # MST
+                start_mst   = time.time()
+                G           = csg.getGraphNetworkx()
+                T           = nx.minimum_spanning_tree(G, weight='weight')
+                mst_csg     = MinimalSpaningTree(T)
+                mst_csg.buildGraph()
+                end_mst     = time.time()
+
+                print("> Time for MST: ", end_mst - start_mst)
+
+                self.m_update = Updating(None, mst_csg, csg)
+                
             # Dendrogram
             start_dendrogram = time.time()
             dendrogram       = Dendrogram(self.m_update.getMST(), self.min_cluster_size, minpts, self.timestamp) # MST, miClusterSize, minPts
@@ -2252,8 +2238,14 @@ class CoreStream(base.Clusterer):
             # Runtime
             if self.runtime:
                 self.df_runtime_stream.at[minpts, 'minpts']     = minpts
-                self.df_runtime_stream.at[minpts, 'core_sg']    = (end_hierarchy - start_hierarchy)
-                self.df_runtime_stream.at[minpts, 'mst']        = (end_mst - start_mst)
+                
+                if minpts != minpts_max:
+                    self.df_runtime_stream.at[minpts, 'core_sg']    = (end_hierarchy - start_hierarchy)
+                    self.df_runtime_stream.at[minpts, 'mst']        = (end_mst - start_mst)
+                else:
+                    self.df_runtime_stream.at[minpts, 'core_sg'] = 0
+                    self.df_runtime_stream.at[minpts, 'mst']     = 0
+                
                 self.df_runtime_stream.at[minpts, 'dendrogram'] = (end_dendrogram - start_dendrogram)
                 self.df_runtime_stream.at[minpts, 'selection']  = (end_selection - start_selection)
                 self.df_runtime_stream.at[minpts, 'total']      = (end_time_total - start_time_total)
@@ -2264,11 +2256,11 @@ class CoreStream(base.Clusterer):
             # GraphViz Dendrogram -> if i == 200: dendrogram.getGraphVizString()
 
         if self.save_partitions:
-            self.save_partitions_bubble_and_points_minpts(len_points, matrix_partitions_bubbles, matrix_partitions_hdbscan, min_pts_min, min_pts_max)
-            self.save_partitions_final(matrix_partitions, len_dbs, csg.getVertices(), min_pts_min, min_pts_max)
+            self.save_partitions_bubble_and_points_minpts(len_points, matrix_partitions_bubbles, matrix_partitions_hdbscan, minpts_min, minpts_max)
+            self.save_partitions_final(matrix_partitions, len_dbs, csg.getVertices(), minpts_min, minpts_max)
         
         if self.plot:
-            self.plot_partitions(matrix_partitions, len_dbs, min_pts_min, min_pts_max, df_partition)
+            self.plot_partitions(matrix_partitions, len_dbs, minpts_min, minpts_max, df_partition)
         
         # reset df_bubbles_to_points['id_bubble'] in timestamp
         #df_bubbles_to_points['id_bubble'] = -1
@@ -2497,17 +2489,18 @@ class CoreStream(base.Clusterer):
             if not os.path.exists(sub_dir):
                 os.makedirs(sub_dir)
 
-            for i in range(min_pts_max, min_pts_min - 1, -self.step):
-                with open(os.path.join(sub_dir, "CoreStream_Partitions_MinPts_" + str(i) + ".csv"), 'w') as writer:
-                    writer.write("x,y,N,radio,color,cluster,ID\n")
-
-                    cores = ["blue", "red", "orange", "green", "purple", "brown", "pink", "olive", "cyan"]
-
-                    for v in vertices:
-                        if matrix_partitions[i][v.getID()] == -1:
-                            writer.write(str(v.getDataBubble().getRep(self.timestamp)[0]) + "," + str(v.getDataBubble().getRep(self.timestamp)[1]) + "," + str(v.getDataBubble()._weight(self.timestamp)) + "," + str(v.getDataBubble().getExtent(self.timestamp)) + ",black,-1" + "," + str(v.getDataBubble().getID()) + "\n")
-                        else:
-                            writer.write(str(v.getDataBubble().getRep(self.timestamp)[0]) + "," + str(v.getDataBubble().getRep(self.timestamp)[1]) + "," + str(v.getDataBubble()._weight(self.timestamp)) + "," + str(v.getDataBubble().getExtent(self.timestamp)) + "," + cores[matrix_partitions[i][v.getID()] % 9] + "," + str(matrix_partitions[i][v.getID()]) + "," + str(v.getDataBubble().getID()) + "\n")
+            if self.plot:
+                cores = ["blue", "red", "orange", "green", "purple", "brown", "pink", "olive", "cyan"]
+                
+                for i in range(min_pts_max, min_pts_min - 1, -self.step):
+                    with open(os.path.join(sub_dir, "CoreStream_Partitions_MinPts_" + str(i) + ".csv"), 'w') as writer:
+                        writer.write("x,y,N,radio,color,cluster,ID\n")
+                        
+                        for v in vertices:
+                            if matrix_partitions[i][v.getID()] == -1:
+                                writer.write(str(v.getDataBubble().getRep(self.timestamp)[0]) + "," + str(v.getDataBubble().getRep(self.timestamp)[1]) + "," + str(v.getDataBubble()._weight(self.timestamp)) + "," + str(v.getDataBubble().getExtent(self.timestamp)) + ",black,-1" + "," + str(v.getDataBubble().getID()) + "\n")
+                            else:
+                                writer.write(str(v.getDataBubble().getRep(self.timestamp)[0]) + "," + str(v.getDataBubble().getRep(self.timestamp)[1]) + "," + str(v.getDataBubble()._weight(self.timestamp)) + "," + str(v.getDataBubble().getExtent(self.timestamp)) + "," + cores[matrix_partitions[i][v.getID()] % 9] + "," + str(matrix_partitions[i][v.getID()]) + "," + str(v.getDataBubble().getID()) + "\n")
 
             # Saving the partitions bubbles
             with open(os.path.join(sub_dir, "CoreStream_All_Partitions_MinPts.csv"), 'w') as writer:
@@ -2616,7 +2609,7 @@ class CoreStream(base.Clusterer):
         
         plt.close('all')
     
-    def save_partitions_bubble_and_points_minpts(self, len_partitions, matrix_partitions_bubble, matrix_partitions_hdbscan, min_pts_min, min_pts_max):
+    def save_partitions_bubble_and_points_minpts(self, len_partitions, matrix_partitions_bubble, matrix_partitions_hdbscan, minpts_min, minpts_max):
 
         m_directory = os.path.join(os.getcwd(), "results/flat_solutions")
         
@@ -2636,7 +2629,7 @@ class CoreStream(base.Clusterer):
 
                 writer.write("\n")
 
-                for i in range(min_pts_min, min_pts_max + 1, self.step):
+                for i in range(minpts_min, minpts_max + 1, self.step):
                     for j in range(len_partitions):
                         if j == 0:
                             writer.write(str(matrix_partitions_bubble[i][j]))
@@ -2655,7 +2648,7 @@ class CoreStream(base.Clusterer):
 
                 writer.write("\n")
 
-                for i in range(min_pts_min, min_pts_max + 1, self.step):
+                for i in range(minpts_min, minpts_max + 1, self.step):
                     for j in range(len_partitions): 
                         if j == 0:
                             writer.write(str(matrix_partitions_hdbscan[i][j]))
@@ -2793,14 +2786,15 @@ if __name__ == "__main__":
                         min_cluster_size = 25,
                         step=2,
                         decaying_factor=float(sys.argv[4]),
-                        beta=float(sys.argv[5]),
-                        mu=2, n_samples_init=initial_points, 
+                        beta=0.75,
+                        mu=2,
+                        n_samples_init=initial_points, 
                         epsilon=0.005,
-                        percent=0.15,
+                        percent=0.10,
                         method_summarization='single',
                         stream_speed=100,
                         runtime=True,
-                        plot=True,
+                        plot=False,
                         save_partitions=True)
 
     count_points = 0
