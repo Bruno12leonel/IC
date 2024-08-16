@@ -16,7 +16,7 @@ jobs:
       options: --privileged
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4.1.7
       - name: Install dependencies
         run: /bin/bash .github/workflows/setup.sh
       - name: Build image and send files
