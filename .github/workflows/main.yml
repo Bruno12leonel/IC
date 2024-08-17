@@ -17,8 +17,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-      - name: Install dependencies
-        run: /bin/bash .github/workflows/setup.sh
       - name: Build image and send files
         env:
           RECIPE: ${{ secrets.RECIPE }}
