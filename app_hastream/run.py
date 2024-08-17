@@ -20,64 +20,26 @@ from sklearn.neighbors import NearestNeighbors
 from sklearn.cluster import AgglomerativeClustering
 from sklearn.preprocessing import MinMaxScaler
 
-class SuperVertex():
-    s_idCounterSuperVertex = 0
-
-    def __init__(self, c):
-        self.m_id        = SuperVertex.s_idCounterSuperVertex
-        SuperVertex.s_idCounterSuperVertex += 1
-        self.m_component = c
-        self.m_vertices  = set(self.m_component.getVertices())
-        self.m_visited   = False
-
-
-    def getVertices(self):
-        return self.m_vertices
-
-    def visited(self) -> bool:
-        return self.m_visited
-
-    def setVisited(self):
-        self.m_visited = True
-
-    def resetVisited(self):
-        self.m_visited = False
-
-    def getID(self):
-        return self.m_id
-
-    def compareID(self, other: 'SuperVertex'):
-        return self.m_id == other.m_id
-
-    def isSuperVertex(self):
-        return True
-
-    def containsVertex(self, v):
-        return v in self.m_vertices
-
-    def getComponent(self):
-        return self.m_component
-    
 class Vertex():
-    
+
     s_idCounter = 0
 
-    def __init__(self, mc, timestamp, id=None):
+    def __init__(self, db, timestamp, id=None):
         self.m_id          = id if id is not None else Vertex.s_idCounter
         Vertex.s_idCounter += 1
-        self.m_mc          = mc
+        self.m_db          = db
         self.timestamp     = timestamp
         
-        if self.m_mc is not None:
-            self.m_mc.setVertexRepresentative(self)
+        if self.m_db is not None:
+            self.m_db.setVertexRepresentative(self)
             
         self.m_visited            = False
         self.m_coreDistanceObject = None
         self.m_lrd                = -1
         self.m_coreDist           = 0
         
-    def getMicroCluster(self):
-        return self.m_mc
+    def getDataBubble(self):
+        return self.m_db
 
     def getCoreDistance(self):
         if self.m_coreDist == 0:
@@ -91,33 +53,45 @@ class Vertex():
         self.m_coreDistanceObject = coreDistObj
 
     def String(self):
-        return f"({self.m_mc.getCenter()})"
+        return f"({self.m_db.getRep()})"
 
     def getGraphVizVertexString(self):
         return f"vertex{self.m_id}"
 
     def getGraphVizString(self):
-        return f"{self.getGraphVizVertexString()} [label='{self}';cdist={self.getCoreDistance()}]"
+        #return f"{self.getGraphVizVertexString()} [label = " {self.String}  cdist={self.getCoreDistance()}"];"
+        return "{} [label=\"{}\"]" .format(self.getGraphVizVertexString(),self.getGraphVizVertexString())
 
     def getDistanceToVertex(self, other):
-        return self.m_mc.getCenterDistance(other.getMicroCluster())
-    '''
+        return self.m_db.getCenterDistance(other.getDataBubble())
+    
     def getDistanceRep(self, vertex):
-        x1 = self.distance(self.m_mc.getCenter(), vertex.getMicroCluster().getCenter())
+        x1 = self.distance(self.m_db.getRep(self.timestamp), vertex.getDataBubble().getRep(self.timestamp))
         
         return x1
-    '''
+
     def getDistance(self, vertex):
-        if self.m_mc.getStaticCenter() is None or vertex.getMicroCluster().getStaticCenter() is None:
+        if self.m_db.getStaticCenter() is None or vertex.getDataBubble().getStaticCenter() is None:
             return self.getDistanceToVertex(vertex)
         
-        return self.distance(self.m_mc.getCenter(self.timestamp), vertex.getMicroCluster().getCenter(self.timestamp))
+        x1 = self.distance(self.m_db.getRep(self.timestamp), vertex.getDataBubble().getRep(self.timestamp)) - (self.m_db.getExtent(self.timestamp) + vertex.getDataBubble().getExtent(self.timestamp))
+        x2 = self.m_db.getNnDist(1, self.timestamp)
+        x3 = vertex.getDataBubble().getNnDist(1, self.timestamp)
+        
+        if x1 >= 0:
+            return x1 + x2 + x3
+        
+        return max(x2, x3)
+    
+        #return self.distance(self.m_db.getRep(self.timestamp), vertex.getDataBubble().getRep(self.timestamp))
 
     def distance(self, v1, v2):
         distance = 0
+        
         for i in range(len(v1)):
             d = v1[i] - v2[i]
             distance += d * d
+            
         return math.sqrt(distance)
 
     def setCoreDistChanged(self):
@@ -144,15 +118,17 @@ class Vertex():
     def compareID(self,  other: "Vertex"):
         return self.m_id == other.m_id
 
-class MicroCluster(metaclass=ABCMeta):
-
-    s_idCounter = 0
+class DataBubble(metaclass=ABCMeta):
     
+    s_idCounter = 0
+  
     def __init__(self, x, timestamp, decaying_factor):
 
         self.x = x
-
-        self.db_id           = MicroCluster.s_idCounter        
+        
+        self.db_id              = DataBubble.s_idCounter
+        DataBubble.s_idCounter += 1
+        
         self.last_edit_time  = timestamp
         self.creation_time   = timestamp
         self.decaying_factor = decaying_factor
@@ -160,48 +136,34 @@ class MicroCluster(metaclass=ABCMeta):
         self.N              = 1
         self.linear_sum     = x
         self.squared_sum    = {i: (x_val * x_val) for i, x_val in x.items()}        
-        self.m_staticCenter = [];
-
+        self.m_staticCenter = len(self.linear_sum)
+    
     def getID(self):
         return self.db_id
 
     def setID(self, id):
         self.db_id = id
     
-    def calc_cf1(self, fading_function):
-        cf1 = []        
-        for key in self.linear_sum.keys():
-            val_ls = self.linear_sum[key]
-            cf1.append(fading_function * val_ls)
-        return cf1
-    
-    def calc_cf2(self, fading_function):
-        cf2 = []        
-        for key in self.squared_sum.keys():
-            val_ss = self.squared_sum[key]
-            cf2.append(fading_function * val_ss)
-        return cf2
+    def getN(self):
+        return self.N
 
-    def calc_weight(self):
-        return self._weight()
-
-    def getWeight(self, timestamp):
+    def _weight(self, timestamp):
         return self.N * self.fading_function(timestamp - self.last_edit_time)
         
-    def getCenter(self, timestamp):
-        ff = self.fading_function(timestamp - self.last_edit_time)
-        weight = self.getWeight(timestamp)
-        center = {key: (ff * val) / weight for key, val in self.linear_sum.items()}
+    def getRep(self, timestamp):
+        ff     = self.fading_function(timestamp - self.last_edit_time)
+        weight = self._weight(timestamp)
+        center = {key: (val * ff) / weight for key, val in self.linear_sum.items()}
         
         return center
-    '''
-    def getRadius(self, timestamp):        
+
+    def getExtentDB(self, timestamp):        
         x1  = 0
         x2  = 0
         res = 0
         
         ff     = self.fading_function(timestamp - self.last_edit_time)
-        weight = self.getWeight(timestamp)
+        weight = self._weight(timestamp)
         
         for key in self.linear_sum.keys():
             val_ls = self.linear_sum[key]
@@ -210,7 +172,7 @@ class MicroCluster(metaclass=ABCMeta):
             x1  = 2 * (val_ss * ff) * weight
             x2  = 2 * (val_ls * ff)**2
             tmp = (x1 - x2)
-                        
+            
             if tmp <= 0.0:
                 tmp = 1/10 * 1/10
             
@@ -218,51 +180,57 @@ class MicroCluster(metaclass=ABCMeta):
             
             res += math.sqrt(diff) if diff > 0 else 0
 
-        return (res / len(self.linear_sum)) * 1.5  #redius factor
+        return (res / len(self.linear_sum)) * 1.4 #redius factor
         #return res
-    '''
-    def getRadius(self, timestamp):        
-        ff  = self.fading_function(timestamp - self.last_edit_time)
-        w   = self.getWeight(timestamp)        
-        cf1 = self.calc_cf1(ff)
-        cf2 = self.calc_cf2(ff)        
-        res = 0      
+
+    def getExtent(self, timestamp):        
+        x1  = 0
+        x2  = 0
+        res = 0
         
-        for i in range(len(self.linear_sum)):
-            x1 = cf2[i] / w
-            x2 = math.pow(cf1[i]/w , 2)
+        ff     = self.fading_function(timestamp - self.last_edit_time)
+        weight = self._weight(timestamp)
+    
+        for key in self.linear_sum.keys():
+            val_ls = self.linear_sum[key]
+            val_ss = self.squared_sum[key]
             
-            tmp = x1 - x2
+            # raio Micro-Cluster
+            x1  = (val_ss * ff) / weight
+            x2  = ((val_ls * ff) / weight)**2
+            tmp = (x1 - x2)
             
             res += math.sqrt(tmp) if tmp > 0 else (1/10 * 1/10)
             
-        #1.8            
-        return (res / len(cf1)) * 1.8
+        return (res / len(self.linear_sum)) * 1.8  #redius factor
+        #return res
+
+    def insert(self, x, timestamp):
         
-    def add(self, x):        
+        if self.last_edit_time != timestamp:
+            self.fade(timestamp)
+            
+        self.last_edit_time = timestamp
+        
         self.N += 1
         
         for key, val in x.items():
-            self.linear_sum[key]  += val
-            self.squared_sum[key] += val * val
-            
-    def insert(self, x, timestamp):
-        if(self.last_edit_time != timestamp):
-            self.fade(timestamp)
-        
-        self.last_edit_time = timestamp
-        
-        self.add(x)
+            try:
+                self.linear_sum[key]  += val
+                self.squared_sum[key] += val * val
+            except KeyError:
+                self.linear_sum[key]  = val
+                self.squared_sum[key] = val * val
     
     def fade(self, timestamp):
         ff = self.fading_function(timestamp - self.last_edit_time)
         
         self.N *= ff
         
-        for key, val in x.items():            
+        for key, val in self.linear_sum.items():
             self.linear_sum[key]  *= ff
             self.squared_sum[key] *= ff
-        
+    
     def merge(self, cluster):
         self.N += cluster.N
         
@@ -276,7 +244,10 @@ class MicroCluster(metaclass=ABCMeta):
                 
         if self.last_edit_time < cluster.creation_time:
             self.last_edit_time = cluster.creation_time
-            
+
+    def getNnDist(self, k, timestamp):
+        return ((k / self.N)**(1.0 / len(self.linear_sum))) * self.getExtent(timestamp)
+
     def fading_function(self, time):
         return 2 ** (-self.decaying_factor * time)
     
@@ -290,21 +261,9 @@ class MicroCluster(metaclass=ABCMeta):
         return self.m_staticCenter
 
     def setStaticCenter(self, timestamp):
-        self.m_staticCenter = self.getCenter(timestamp).copy()
-        
-    def hasCenterChanged(self,percentage, refEpsilon, timestamp):
-        distance = self.getCenterDistance(self.m_staticCenter, timestamp)
-        if(distance > percentage * refEpsilon):
-            return True
-        return False
-    def getCenterDistance(self, instance, timestamp):
-        distance = 0.0
-        center = self.getCenter(timestamp)
-        for i in range(len(instance)):
-            d = center[i] - instance[i]
-            distance += d * d
-        return math.sqrt(distance)
-        
+        m_static_center = self.getRep(timestamp).copy()
+        return m_static_center
+
 class Neighbour():
     def __init__(self, vertex = Vertex, dist=None):
         if dist is not None:
@@ -332,6 +291,9 @@ class Edge():
         self.m_vertex1 = v1
         self.m_vertex2 = v2
         self.m_weight  = dist
+    
+    def __str__(self):
+        return str(self.m_weight)
 
     def compareTo(self, other):
         return self.m_weight < other.m_weight
@@ -362,160 +324,12 @@ class Edge():
         self.m_vertex2 = v2
 
     def graphVizString(self):
-        return "M.add_edge(\"" + self.m_vertex1.getGraphVizVertexString() + "\",\"" + self.m_vertex2.getGraphVizVertexString() + "\",weight= " + str(self.m_weight) +")"
+        #return f"{self.m_vertex1.getGraphVizVertexString()} -- {self.m_vertex2.getGraphVizVertexString()}"
+        return "{} -- {} [label=\"{}\"]".format(self.m_vertex1.getGraphVizVertexString(),self.m_vertex2.getGraphVizVertexString(),self.getWeight())
 
     def setEdgeWeight(self, weight):
         self.m_weight = weight
 
-
-class SuperAdjacencyList:
-    def __init__(self):
-        self.m_adjacencyList = defaultdict(list)
-
-    def addEdge(self, vertex, edge):
-        
-        if vertex not in self.m_adjacencyList:
-            self.m_adjacencyList[vertex] = deque()
-            self.m_adjacencyList[vertex].append(edge)
-            return
-        edges = self.m_adjacencyList[vertex]
-        if (edge.getWeight() < edges[0].getWeight()):
-            edges.appendleft(edge);
-        else:
-            edges.append(edge);
-            
-
-    def removeEdge(self, vertex):
-        del self.m_adjacencyList[vertex]
-
-    def getAdjacentVertices(self):
-        return self.m_adjacencyList.keys()
-
-    def getEdgeWithSmallestWeight(self, vertex):
-        edges = self.m_adjacencyList[vertex]
-        if not edges:
-            return None
-        res = min(edges, key=lambda edge: edge.getWeight())
-        return res
-
-    def getAdjacentEdges(self):
-        all_edges = []
-        for edges in self.m_adjacencyList.values():
-            all_edges.extend(edges)
-        return all_edges
-
-    def getEdgesTo(self, vertex):
-        return self.m_adjacencyList[vertex]
-
-    def clear(self):
-        self.m_adjacencyList = defaultdict(list)
-        
-class SuperAbstractGraph:
-    def __init__(self):
-        self.m_graph = defaultdict(SuperAdjacencyList)
-        self.m_globalIDCounter = 0
-
-    def addVertex(self, vertex):
-        if vertex in self.m_graph:
-            return False
-        self.m_graph[vertex] = SuperAdjacencyList()
-        return True
-
-    def addEdge(self, vertex1, vertex2, edge):
-        if vertex1 not in self.m_graph or vertex2 not in self.m_graph:
-            raise KeyError("One vertex or both are missing")
-        self.adjacencyList(vertex1).addEdge(vertex2, edge)
-        self.adjacencyList(vertex2).addEdge(vertex1, edge)
-
-    def removeEdge(self, vertex1, vertex2):
-        if vertex1 not in self.m_graph or vertex2 not in self.m_graph:
-            raise KeyError("One vertex or both are missing")
-        self.adjacencyList(vertex1).removeEdge(vertex2)
-        self.adjacencyList(vertex2).removeEdge(vertex1)
-
-    def removeVertex(self, vertex):
-        del self.m_graph[vertex]
-
-    def buildGraph(self):
-        pass
-
-    def getEdge(self, vertex1, vertex2):
-        if vertex1 not in self.m_graph or vertex2 not in self.m_graph:
-            raise KeyError("One vertex or both are missing")
-        edges = self.adjacencyList(vertex1).getEdgesTo(vertex2)
-        if edges is None or len(edges) == 0:
-            raise KeyError("There are no edges between these vertices.")
-        return edges
-
-    def getVertices(self):
-        if self.isEmpty():
-            return None
-        return self.m_graph.keys()
-
-    def getAdjacentEdges(self, vertex):
-        adjacentEdges = self.adjacencyList(vertex).getAdjacentEdges()
-        if adjacentEdges is None:
-            raise KeyError("This is an isolated vertex")
-        return adjacentEdges
-
-    def containsVertex(self, vertex):
-        return vertex in self.m_graph
-
-    def containsEdge(self, vertex1, vertex2):
-        if vertex1 not in self.m_graph or vertex2 not in self.m_graph:
-            raise KeyError("One vertex or both are missing")
-        return self.adjacencyList(vertex1).getEdgesTo(vertex2) is not None
-
-    def __iter__(self):
-        return iter(self.m_graph.keys())
-
-    def numVertices(self):
-        return len(self.m_graph)
-
-    def isEmpty(self):
-        return len(self.m_graph) == 0
-
-    def getNextID(self):
-        self.m_globalIDCounter += 1
-        return self.m_globalIDCounter
-
-    def adjacencyList(self, vertex):
-        return self.m_graph[vertex]
-    
-class SuperCompleteGraph(SuperAbstractGraph):
-    def __init__(self, superVertices, sourcegraph):
-        super().__init__()
-        self.m_supervertices = list(superVertices)
-        self.m_sourcegraph = sourcegraph
-
-    def buildGraph(self):
-        for i in range(len(self.m_supervertices)):
-            sv_i = self.m_supervertices[i]
-            if not self.containsVertex(sv_i):
-                self.addVertex(sv_i)
-            for j in range(i + 1, len(self.m_supervertices)):
-                sv_j = self.m_supervertices[j]
-                if not self.containsVertex(sv_j):
-                    self.addVertex(sv_j)
-                min_edge = None
-                dist = float('inf')
-                for v in sv_i.getVertices():
-                    for u in sv_j.getVertices():
-                        e = self.m_sourcegraph.getEdge(v, u)
-                        
-                        w = 0
-                        
-                        if type(e.getWeight()) == float:
-                            w = e.getWeight()
-                        else:
-                            w = e.getWeight().getWeight()
-
-                        if w < dist:
-                            min_edge = self.m_sourcegraph.getEdge(v, u)
-                            dist = e.getWeight()
-                assert min_edge is not None
-                self.addEdge(sv_i, sv_j, min_edge) 
-                
 class AbstractGraph():
     def __init__(self):
         self.m_graph = {}
@@ -595,14 +409,17 @@ class AbstractGraph():
     def containsEdge(self, vertex1, vertex2):
         if not self.containsVertex(vertex1) or not self.containsVertex(vertex2):
             raise Exception("One vertex or both are missing")
+        
         for v in self.adjacencyList(vertex1).keys():
             if v == vertex2:
-                return True                
+                return True
+                
         return False
     
     def containsEdge2(self, edge : Edge):
         if (self.containsVertex(edge.getVertex1()) and self.containsVertex(edge.getVertex2())):
             return self.containsEdge(edge.getVertex1(), edge.getVertex2())
+        
         return False
 
     def __iter__(self):
@@ -621,25 +438,36 @@ class AbstractGraph():
     def adjacencyList(self, vertex):
         return self.m_graph[vertex]
 
-    def getGraphVizString(self):
-        edges = set()
+    def getGraphVizString(self, timestamp, minpts):
+        
+        m_directory = os.path.join(os.getcwd(), "results/graphviz")
+        
+        try:
+            sub_dir = os.path.join(m_directory, "graphviz_t" + str(timestamp))
 
-        vertices = sorted(self.m_graph, key=lambda x: x.id)
+            if not os.path.exists(sub_dir):
+                os.makedirs(sub_dir)
 
-        sb = []
-        sb.append("graph {\n")
+            with open(os.path.join(sub_dir, "graphviz_MinPts_" + str(minpts) + ".txt"), 'w') as writer:
+                writer.write("graph {\n")
 
-        for v in vertices:
-            sb.append("\t" + v.get_graph_viz_string() + "\n")
-            edges.update(self.adjacency_list(v).values())
+                edges = set()
 
-        edges_sorted = sorted(edges, key=lambda x: (x.v1.id, x.v2.id))
+                vertices = sorted(self.m_graph, key=lambda x: x.getID())
+                
+                for v in vertices:
+                    writer.write("\t" + v.getGraphVizString() + "\n")
+                    edges.update(self.adjacencyList(v).values())
 
-        for e in edges_sorted:
-            sb.append("\t" + e.graph_viz_string() + "\n")
+                edges_sorted = sorted(edges, key=lambda x: x.getWeight())
 
-        sb.append("}")
-        return "".join(sb)
+                for e in edges_sorted:
+                    writer.write("\t" + e.graphVizString() + "\n")
+
+                writer.write("}\n")
+
+        except FileNotFoundError as e:
+            print(e)
 
     def getAdjacencyMatrixAsArray(self):
         matrix = [[0.0 for _ in range(len(self.m_graph))] for _ in range(len(self.m_graph))]
@@ -678,30 +506,67 @@ class AbstractGraph():
             return Exception("Vertex does not exist!")
         
         return  vertex in self.adjacencyList(vertex).keys()
-    
-    def clearAdjacencyLists(self):
-        for v in self.getVertices():
-            self.m_graph[v].clear()
         
 class MutualReachabilityGraph(AbstractGraph):
-    def __init__(self, G, mcs : MicroCluster, minPts, timestamp):
+    def __init__(self, G, dbs : DataBubble, minPts, timestamp):
         super().__init__()
         self.m_minPts  = minPts
         self.G         = G
         self.timestamp = timestamp
 
-        for mc in mcs:
-            v = Vertex(mc, timestamp)
-            mc.setVertexRepresentative(v)
+        for db in dbs:
+            v = Vertex(db, timestamp)
+            db.setVertexRepresentative(v)
             self.G.add_node(v)
+            
+            self.addVertex(v)
+
+        self.knng = KNearestNeighborsGraph(G)
         
         start = time.time()
         self.computeCoreDistance(G, minPts)
         end   = time.time()
-        #print(">tempo para computar coreDistanceDB",end - start, end='\n')
+        print("> Time coreDistanceDB", end - start, end='\n')
 
     def getKnngGraph(self):
         return self.knng
+    
+    def buildAbsGraph(self):
+        
+        sns.set_context('poster')
+        sns.set_style('white')
+        sns.set_color_codes()
+        
+        plot_kwds = {'s' : 1, 'linewidths':0}
+        
+        plt.figure(figsize = (16,12))
+        
+        linhas = []
+        
+        for i, (u,v,w) in enumerate(self.G.edges(data='weight')):
+            self.addVertex(u)
+            self.addVertex(v)
+            self.addEdge(u,v,w)
+            
+            plt.gca().add_patch(plt.Circle((u.getDataBubble().getRep(self.timestamp)[0],u.getDataBubble().getRep(self.timestamp)[1]), u.getDataBubble().getExtent(self.timestamp), color='blue', fill=False))
+            plt.gca().add_patch(plt.Circle((v.getDataBubble().getRep(self.timestamp)[0],v.getDataBubble().getRep(self.timestamp)[1]), v.getDataBubble().getExtent(self.timestamp), color='blue', fill=False))
+            
+            linhas.append(((u.getDataBubble().getRep(self.timestamp)[0],u.getDataBubble().getRep(self.timestamp)[1]) ,(v.getDataBubble().getRep(self.timestamp)[0],v.getDataBubble().getRep(self.timestamp)[1]), w))
+            
+            plt.text(u.getDataBubble().getRep(self.timestamp)[0], u.getDataBubble().getRep(self.timestamp)[1], str(u.getID()), fontsize=18, ha='center', va='center')
+            plt.text(v.getDataBubble().getRep(self.timestamp)[0], v.getDataBubble().getRep(self.timestamp)[1], str(v.getID()), fontsize=18, ha='center', va='center')
+        
+        # Loop através da lista de linhas
+        for (x1, y1), (x2, y2), numero in linhas:
+            # Trace a linha
+            plt.plot([x1, x2], [y1, y2], marker='o', linestyle='-', markersize=5, label=str(numero))
+
+            # Adicione o número como texto no meio da linha
+            plt.text((x1 + x2) / 2, (y1 + y2) / 2, str(numero), fontsize=12, ha='center', va='center')
+
+        # Mostre o gráfico
+        plt.scatter(data[0:5000, 0], data[0:5000, 1], **plot_kwds)
+        plt.show()
        
     def buildGraph(self):
         for v1 in self.G:            
@@ -709,28 +574,53 @@ class MutualReachabilityGraph(AbstractGraph):
                 if v1 != v2:
                     mrd = self.getMutualReachabilityDistance(v1, v2)
                     self.G.add_edge(v1, v2, weight = mrd)
-        
-        self.buildGraph1()
-        
-    def buildGraph1(self):
-        for i, (u,v,w) in enumerate(self.G.edges(data='weight')):
-            self.addVertex(u)
-            self.addVertex(v)
-            self.addEdge(u,v,w)
-            
+                    self.addEdge(v1, v2, mrd)
+
     def computeCoreDistance(self, vertices, minPts):
         for current in vertices:
-            neighbours      = self.getNeighbourhood(current, vertices)
-            minPtsNeighbour = neighbours[minPts - 1]
-            
-            current.setCoreDistance(minPtsNeighbour)
+            if current.getDataBubble()._weight(self.timestamp) >= minPts:
+                current.setCoreDist(current.getDataBubble().getNnDist(minPts, self.timestamp))
+            else:
+                neighbours  = self.getNeighbourhood(current, vertices)
+                countPoints = current.getDataBubble()._weight(self.timestamp)
+                neighbourC  = None
 
+                for n in neighbours:
+                    weight       = n.getVertex().getDataBubble()._weight(self.timestamp)
+                    countPoints += weight
+                    
+                    if self.knng.getEdge(current, n.getVertex()) is None:
+                        self.knng.setEdge(current, n.getVertex())
+                        
+                    if countPoints >= minPts:
+                        countPoints -= weight
+                        neighbourC   = n
+                        
+                        break
+                
+                extentCurrent    = current.getDataBubble().getExtent(self.timestamp)
+                extentNeighbourC = neighbourC.getVertex().getDataBubble().getExtent(self.timestamp)
+                
+                overlapping = current.getDistanceRep(neighbourC.getVertex()) - (extentCurrent + extentNeighbourC)
+                
+                knnDistNeighbourC = neighbourC.getVertex().getDataBubble().getNnDist(minPts - countPoints, self.timestamp)
+                
+                if(overlapping >= 0.0):
+                    current.setCoreDist(current.getDistanceRep(neighbourC.getVertex()) - extentNeighbourC + knnDistNeighbourC)
+                else:
+                    overlapping *= -1
+                    
+                    if knnDistNeighbourC <= overlapping:
+                        current.setCoreDist(current.getDataBubble().getExtent(self.timestamp))
+                    else:
+                        current.setCoreDist(current.getDataBubble().getExtent(self.timestamp) + knnDistNeighbourC - overlapping)
+                
     def getNeighbourhood(self, vertex, vertices):
         neighbours = []
         
         for v in vertices:
             if v != vertex:
-                neighbour = Neighbour(v, vertex.getDistance(v))
+                neighbour = Neighbour(v, vertex.getDistanceRep(v) - v.getDataBubble().getExtent(self.timestamp))
                 neighbours.append(neighbour)
                 
         neighbours.sort(key=lambda x: x.getDistance(), reverse=False)
@@ -739,21 +629,20 @@ class MutualReachabilityGraph(AbstractGraph):
 
     def getMutualReachabilityDistance(self, v1, v2):
         return max(v1.getCoreDistance(), max(v2.getCoreDistance(), v1.getDistance(v2)))
-    
-    def getMinPts(self):
-        return self.m_minPts
-        
 
 class MinimalSpaningTree(AbstractGraph):
     def __init__(self, graph):
         super().__init__()
         self.m_inputGraph = graph
+        #self.mst_to_hdbscan = []
 
     def buildGraph(self):
         for i, (u,v,w) in enumerate(self.m_inputGraph.edges(data='weight')):
             self.addVertex(u)
             self.addVertex(v)
             self.addEdge(u,v,w)
+        #    self.mst_to_hdbscan.append([u.getID() , v.getID() , w]) 
+        #print(self.mst_to_hdbscan)
     
     def getEdgeWithMinWeight(self, available):
         fromVertex = toVertex = edge = None
@@ -786,77 +675,192 @@ class MinimalSpaningTree(AbstractGraph):
             res += e.getWeight()
             
         return res
-    
-class SuperMinimalSpaningTree(MinimalSpaningTree):
 
-    def __init__(self, graph):
-        super().__init__(graph)
-        self.m_inputGraph = graph
+    def buildAbsGraph(self, timestamp):
+        
+        sns.set_context('poster')
+        sns.set_style('white')
+        sns.set_color_codes()
+        
+        plot_kwds = {'s' : 1, 'linewidths':0}
+        
+        plt.figure(figsize = (16,12))
+        
+        linhas = []
+        
+        for edge in self.getEdges():
+            u = edge.getVertex1()
+            v = edge.getVertex2()
+
+            plt.gca().add_patch(plt.Circle((u.getDataBubble().getRep(timestamp)[0],u.getDataBubble().getRep(timestamp)[1]), u.getDataBubble().getExtent(timestamp), color='blue', fill=False))
+            plt.gca().add_patch(plt.Circle((v.getDataBubble().getRep(timestamp)[0],v.getDataBubble().getRep(timestamp)[1]), v.getDataBubble().getExtent(timestamp), color='blue', fill=False))
+            
+            linhas.append(((u.getDataBubble().getRep(timestamp)[0],u.getDataBubble().getRep(timestamp)[1]) ,(v.getDataBubble().getRep(timestamp)[0],v.getDataBubble().getRep(timestamp)[1])))
+            
+            plt.text(u.getDataBubble().getRep(timestamp)[0], u.getDataBubble().getRep(timestamp)[1], str(u.getID()), fontsize=10, ha='center', va='center')
+            plt.text(v.getDataBubble().getRep(timestamp)[0], v.getDataBubble().getRep(timestamp)[1], str(v.getID()), fontsize=10, ha='center', va='center')
+        
+        # Loop através da lista de linhas
+        for (x1, y1), (x2, y2) in linhas:
+            # Trace a linha
+            plt.plot([x1, x2], [y1, y2], marker='o', linestyle='-', markersize=5)
+
+        # Mostre o gráfico
+        plt.scatter(data[0:5000, 0], data[0:5000, 1], **plot_kwds)
+        plt.show()
+    
+class KNearestNeighborsGraph(AbstractGraph):
+    def __init__(self, vertices):
+        super().__init__()
+        
+        for v in vertices:
+            super().addVertex(v)
+        
+    def setEdge(self, v1, v2):
+        distance = v1.getDistance(v2)
+        super().addEdge(v1, v2, distance)
 
     def buildGraph(self):
-        vertexQueue = set()
-        edgeQueue = []
+        pass
+
+    def buildAbsGraph(self, timestamp):
         
-        # Select any node as the first node
-        iterator = iter(self.m_inputGraph)
-        first = None
-        if iterator:
-            first = next(iterator)
-        else:
-            return
+        sns.set_context('poster')
+        sns.set_style('white')
+        sns.set_color_codes()
+        
+        plot_kwds = {'s' : 1, 'linewidths':0}
+        
+        plt.figure(figsize = (16,12))
+        
+        linhas = []
+        
+        for edge in self.getEdges():
+            u = edge.getVertex1()
+            v = edge.getVertex2()
+            
+            plt.gca().add_patch(plt.Circle((u.getDataBubble().getRep(timestamp)[0],u.getDataBubble().getRep(timestamp)[1]), u.getDataBubble().getExtent(timestamp), color='blue', fill=False))
+            plt.gca().add_patch(plt.Circle((v.getDataBubble().getRep(timestamp)[0],v.getDataBubble().getRep(timestamp)[1]), v.getDataBubble().getExtent(timestamp), color='blue', fill=False))
+            
+            linhas.append(((u.getDataBubble().getRep(timestamp)[0],u.getDataBubble().getRep(timestamp)[1]) ,(v.getDataBubble().getRep(timestamp)[0],v.getDataBubble().getRep(timestamp)[1])))
+            
+            plt.text(u.getDataBubble().getRep(timestamp)[0], u.getDataBubble().getRep(timestamp)[1], str(u.getID()), fontsize=10, ha='center', va='center')
+            plt.text(v.getDataBubble().getRep(timestamp)[0], v.getDataBubble().getRep(timestamp)[1], str(v.getID()), fontsize=10, ha='center', va='center')
+        
+        # Loop através da lista de linhas
+        for (x1, y1), (x2, y2) in linhas:
+            # Trace a linha
+            plt.plot([x1, x2], [y1, y2], marker='o', linestyle='-', markersize=5)
 
-        vertexQueue.add(first)
+        # Mostre o gráfico
+        plt.scatter(data[0:5000, 0], data[0:5000, 1], **plot_kwds)
+        plt.show()
 
-        while len(vertexQueue) != len(self.m_inputGraph.getVertices()):
-            fromVertex, toVertex, edge = self.getEdgeWithMinWeight(vertexQueue)
-            edgeQueue.append(edge)
-            vertexQueue.add(toVertex)
+class CoreSG(AbstractGraph):
+    def __init__(self, mst: MinimalSpaningTree, knng: KNearestNeighborsGraph, timestamp):
+        super().__init__()
+        
+        self.timestamp = timestamp
+        
+        for v in mst.getVertices():
+            super().addVertex(v)
+            
+        self.addKnng(knng)
+        self.addMst(mst)
 
-        for sv in vertexQueue:
-            for v in sv.getVertices():
-                self.addVertex(v)
-
-        for edge in edgeQueue:
-            vertex1 = edge.getVertex1()
-            vertex2 = edge.getVertex2()
-            self.addEdge(vertex1, vertex2, edge)
-
-        for sv in self.m_inputGraph.getVertices():
-            c = sv.getComponent()
-            edges = c.getEdges()
-            for edge in edges:
-                vertex1 = edge.getVertex1()
-                vertex2 = edge.getVertex2()
-                self.addEdge(vertex1, vertex2, edge)
-
-    def getEdgeWithMinWeight(self, available):
-        fromVertex = None
-        toVertex = None
-        edge = None
-        dist = float('inf')
-
-        for v in available:
-            adjList = self.m_inputGraph.adjacencyList(v)
-            adjVertices = adjList.getAdjacentVertices()
-
-            for adjacentV in adjVertices:
-                e = adjList.getEdgeWithSmallestWeight(adjacentV)
-                if e.getWeight() < dist and adjacentV not in available:
-                    fromVertex = v
-                    toVertex = adjacentV
-                    edge = e
-                    dist = e.getWeight()
-
-        return fromVertex, toVertex, edge
-
-    @staticmethod
-    def getEmptyMST():
-        return SuperMinimalSpaningTree()
+    def buildGraph(self):
+        pass
     
+    def getGraphNetworkx(self):
+        G = nx.Graph()
+        
+        for e in self.getEdges():
+            v1 = e.getVertex1()
+            v2 = e.getVertex2()
+            G.add_node(v1)
+            G.add_node(v2)
+            G.add_edge(v1, v2, weight = e.getWeight())
+            
+        return G
+    
+    def addKnng(self, knng: KNearestNeighborsGraph):
+        edges = knng.getEdges()  
+        
+        for e in edges:
+            self.addEdge(e.getVertex1(), e.getVertex2(), e.getWeight())
+
+    def addMst(self, mst: MinimalSpaningTree):
+        for e in mst.getEdges():
+            if self.getEdge(e.getVertex1(), e.getVertex2()) is None:
+                self.addEdge(e.getVertex1(), e.getVertex2(), e.getWeight())
+
+    def computeHierarchyMinPts(self, minPts: int):
+        self.computeCoreDistance(minPts)
+        edgesGraph = self.getEdges()
+        
+        for e in edgesGraph:
+            self.removeEdge2(e)
+            self.addEdge(e.getVertex1(), e.getVertex2(), self.getMutualReachabilityDistance(e.getVertex1(), e.getVertex2()))
+
+    def computeCoreDistance(self, minPts: int):
+        vertices = self.getVertices()
+        
+        for current in vertices:
+            if current.getDataBubble()._weight(self.timestamp) >= minPts:
+                nnDist = current.getDataBubble().getNnDist(minPts, self.timestamp)
+                current.setCoreDist(nnDist)
+            else:
+                neighbours  = self.getNeighbourhoodMinPtsNN(current)
+                countPoints = current.getDataBubble()._weight(self.timestamp)
+                neighbourC  = None
+
+                for n in neighbours:
+                    weight      = n.getVertex().getDataBubble()._weight(self.timestamp)
+                    countPoints += weight
+                        
+                    if countPoints >= minPts:
+                        countPoints -= weight
+                        neighbourC   = n
+                        break
+                
+                extentCurrent    = current.getDataBubble().getExtent(self.timestamp)
+                extentNeighbourC = neighbourC.getVertex().getDataBubble().getExtent(self.timestamp)
+                
+                overlapping = current.getDistanceRep(neighbourC.getVertex()) - (extentCurrent + extentNeighbourC)
+                
+                knnDistNeighbourC = neighbourC.getVertex().getDataBubble().getNnDist(minPts - countPoints, self.timestamp)
+                
+                if(overlapping >= 0.0):
+                    current.setCoreDist(current.getDistanceRep(neighbourC.getVertex()) - extentNeighbourC + knnDistNeighbourC)
+                else:
+                    overlapping *= -1
+                    
+                    if knnDistNeighbourC <= overlapping:
+                        current.setCoreDist(current.getDataBubble().getExtent(self.timestamp))
+                    else:
+                        current.setCoreDist(current.getDataBubble().getExtent(self.timestamp) + knnDistNeighbourC - overlapping)
+                
+    def getNeighbourhoodMinPtsNN(self, vertex):
+        neighbours = []
+        vertices   = self.getAdjacentEdges(vertex).keys()
+        
+        for v in vertices:
+            if v != vertex:
+                neighbour = Neighbour(v, vertex.getDistanceRep(v) - v.getDataBubble().getExtent(self.timestamp))
+                neighbours.append(neighbour)
+        
+        neighbours.sort(key=lambda x: x.getDistance(), reverse=False)
+        
+        return neighbours
+
+    def getMutualReachabilityDistance(self, v1: Vertex, v2: Vertex):
+        return max(v1.getCoreDistance(), max(v2.getCoreDistance(), v1.getDistance(v2)))
+
 class Updating:
-    def __init__(self, mrg: MutualReachabilityGraph, mst : MinimalSpaningTree):
+    def __init__(self, mrg: MutualReachabilityGraph, mst : MinimalSpaningTree, csg : CoreSG):
         self.m_mrg = mrg
         self.m_mst = mst
+        self.m_csg = csg
         self.m_globalReplacementEdge = None
     
     def getMST(self):
@@ -865,409 +869,15 @@ class Updating:
     def getMRG(self):
         return self.m_mrg
     
-    def insert(self, mc):
-        # Create new vertex for the new microcluster and insert it to the MRG
-        insert = Vertex(mc)
+    def getCSG(self):
+        return self.m_csg
 
-        # Update the "adjacency matrix" of the mutual reachability graph
-        # Furthermore generate candidates whose core-distance has changed and update them
-        updatedObjects = self.computeAndCheckCoreDistance(insert, self.m_mrg.getVertices(), self.m_mrg.getMinPts())
-
-        # Edge insertion i.e. edge's weight has decreased
-        vertices = self.m_mrg.getVertices()
-        # Update the corresponding row in the adjacency matrix
-        for w in updatedObjects:
-            for adj in self.m_mrg.adjacencyList(w).keys():
-                max = self.m_mrg.getMutualReachabilityDistance(w, adj)
-                if w != adj:
-                    self.m_mrg.getEdge(w, adj).setEdgeWeight(max)
-
-            # Fake vertex
-            self.edgeInsertionMST(w)
-
-        # Update the Mutual Reachability Graph, i.e. add new Vertex and the corresponding edges
-        self.m_mrg.addVertex(insert)
-        self.updateMRG_Ins(insert)
-
-        # Vertex insertion into MST
-        self.vertexInsertionMST(insert)
-        return self.m_mst
-    
-    def computeAndCheckCoreDistance(self, vertex, vertices, minPts):
-        vertexList = [vertex]
-        candidateSet = []
-        neighbours = []
-        
-        
-        self.computeNeighbourhoodAndCandidates(vertex, neighbours, candidateSet, vertexList, minPts)
-        neighbours.sort(key=lambda n: n.getDistance(), reverse = False)
-        self.computeNeighbourhoodAndCandidates(vertex, neighbours, candidateSet, vertices, minPts)
-        neighbours.sort(key=lambda n: n.getDistance(), reverse = False)
-
-        coreDist = neighbours[len(neighbours) - 1]
-        vertex.setCoreDistance(coreDist)
-
-        i = 0
-        while i < len(candidateSet):            
-            candidate = candidateSet[i]
-            neighbours = []
-            self.computeNeighbourhoodAndCandidates(candidate, neighbours, None, vertexList, minPts)
-            neighbours.sort(key=lambda n: n.getDistance(), reverse = False)
-            self.computeNeighbourhoodAndCandidates(candidate, neighbours, None, vertices, minPts)
-            neighbours.sort(key=lambda n: n.getDistance(), reverse = False)
-
-            coreDist = neighbours[len(neighbours) - 1]
-            if coreDist.getDistance() < candidate.getCoreDistance():
-                candidate.setCoreDistance(coreDist)
-                i += 1
-            else:
-                del candidateSet[i]
-
-        return candidateSet
-    
-    def computeNeighbourhoodAndCandidates(self, vertex, lista, candidateSet, vertices, minPts):
-        k = minPts - 1
-        for v in vertices:
-            dist = vertex.getDistance(v)
-            if candidateSet is not None and dist < v.getCoreDistance():
-                candidateSet.append(v)
-
-            if len(lista) < minPts:
-                lista.append(Neighbour(v, dist))
-            else:
-                kth = lista[k]
-                if dist < kth.getDistance():
-                    lista.append(Neighbour(v, dist))
-                    if kth.getDistance() != lista[k].getDistance():
-                        for last in range(len(lista) - 1, k, -1):
-                            del lista[last]
-    
-    def edgeInsertionMST(self, w):
-        # Generate the fake vertex to insert
-        z = Vertex(None, -1)
-        self.m_mrg.addVertex(z)
-        # Create fake vertex with edges with the weights from MRG
-        edge = None
-        assert len(self.m_mst.getVertices()) == len(self.m_mrg.getVertices()) - 1
-        for v in self.m_mst.getVertices():
-            if v == w:
-                edge = Edge(z, v, -1)
-            else:
-                edge = Edge(z, v, self.m_mrg.getEdge(w, v).getWeight())
-
-            assert edge is not None
-            self.m_mrg.addEdge(z, v, edge)
-
-        newMSTedges = []
-        self.m_globalReplacementEdge = None
-
-        # Get a random vertex to represent the root of the MST
-        first = None
-        iterator = iter(self.m_mst)
-        if iterator.hasNext():
-            first = iterator.next()
-            if first == w and iterator.hasNext():
-                first = iterator.next()
-            else:
-                # This can only happen when the MRG was empty and a vertex was added.
-                # Since that vertex is the only existing vertex in the MRG, it represents the MST
-                # TODO: Single insertion of vertex in empty MST
-                pass
-
-        assert first != w
-
-        for v in self.m_mrg.getVertices():
-            v.resetVisited()
-
-        self.updateMST_Ins(first, z, newMSTedges)
-        newMSTedges.append(self.m_globalReplacementEdge)
-
-        assert len(newMSTedges) == len(self.m_mst.getVertices())
-
-        # Update MST adjacency lists
-        self.m_mst.clearAdjacencyLists()
-
-        correctMSTedges = []
-        for e in newMSTedges:
-            vertex1 = e.getVertex1()
-            vertex2 = e.getVertex2()
-            if vertex1 != z and vertex2 != z:
-                self.m_mst.addEdge(vertex1, vertex2, e)
-                correctMSTedges.append(e)
-            else:
-                v = e.getAdjacentVertex(z)
-                if v == w:
-                    # Do nothing --> remove the edge to the fake vertex
-                    pass
-                else:
-                    replacement = self.m_mrg.getEdge(w, v)
-                    assert replacement.getWeight() == e.getWeight()
-                    self.m_mst.addEdge(w, v, replacement)
-                    correctMSTedges.append(replacement)
-
-        assert len(correctMSTedges) == len(self.m_mst.getVertices()) - 1
-
-        # Remove fake node from m_mrg
-        for v in self.m_mrg.getVertices():
-            self.m_mrg.removeEdge(z, v)
-        self.m_mrg.removeVertex(z)
-
-        assert not self.m_mrg.containsVertex(z)
-        assert not self.m_mst.containsVertex(z)
-    
-    def updateMST_Ins(self, r, z, edges):
-        r.setVisited()
-        m = self.m_mrg.getEdge(z, r)  # z.getEdgeTo(r)
-        adjacentVertices = self.m_mst.adjacencyList(r).keys()
-        for w in adjacentVertices:
-            if not w.visited():
-                self.updateMST_Ins(w, z, edges)
-                wr = self.m_mrg.getEdge(w, r)  # w.getEdgeTo(r)
-                k = None
-                h = None
-                aux = 0
-                aux3 = 0
-                
-                if type(self.m_globalReplacementEdge.getWeight()) == float:
-                    aux = self.m_globalReplacementEdge.getWeight()
-                else:
-                    aux = self.m_globalReplacementEdge.getWeight().getWeight()
-                    
-                if type(wr.getWeight()) == float:
-                    aux3 = wr.getWeight()
-                else:
-                    aux3 = wr.getWeight().getWeight()
-                
-                if aux > aux3:
-                    k = self.m_globalReplacementEdge
-                    h = wr
-                else:
-                    k = wr
-                    h = self.m_globalReplacementEdge
-                edges.append(h)
-                
-                
-                
-                if type(k.getWeight()) == float:
-                    aux1 = k.getWeight()
-                else:
-                    aux1 = k.getWeight().getWeight()
-                
-                if type(m.getWeight()) == float:
-                    aux2 = m.getWeight()
-                else:
-                    aux2 = m.getWeight().getWeight()
-                    
-                if aux1 < aux2:
-                    m = k
-        self.m_globalReplacementEdge = m
-
-    def updateMRG_Ins(self, vertex):
-        vertices = self.m_mrg.getVertices()
-
-        for v in vertices:
-            # No self loops
-            if vertex != v:
-                max = self.m_mrg.getMutualReachabilityDistance(vertex, v)
-                edge = Edge(vertex, v, max)
-                self.m_mrg.addEdge(vertex, v, edge)
-                self.m_mrg.addEdge(v, vertex, edge)
-
-        assert self.m_mrg.controlNumEdgesCompleteGraph()
-    
-    def vertexInsertionMST(self, insert):
-        newMSTedges = []
-        self.m_globalReplacementEdge = None
-
-        first = None
-        iterator = iter(self.m_mst)
-        if next(iterator):
-            first = next(iterator)
-            if first == insert and iterator.hasNext():
-                first = iterator.next()
-            else:
-                # TODO: Handle the case when the MRG was empty and a vertex was added
-                pass
-        assert first != insert
-
-        for v in self.m_mrg.getVertices():
-            v.resetVisited()
-
-        self.updateMST_Ins(first, insert, newMSTedges)
-        newMSTedges.append(self.m_globalReplacementEdge)
-
-        assert len(newMSTedges) == len(self.m_mst.getVertices())
-
-        self.m_mst.clearAdjacencyLists()
-        self.m_mst.addVertex(insert)
-
-        for e in newMSTedges:
-            vertex1 = e.getVertex1()
-            vertex2 = e.getVertex2()
-            self.m_mst.addEdge(vertex1, vertex2, e)
-    
-    def getAffectedNeighborhood2(self, query, vertices):
-        neighbors = set()
-        dist = -1.0
-        for v in vertices:
-            dist = v.getDistance(query)
-            if v.getCoreDistance() >= dist:
-                neighbors.add(v)
-        return neighbors
-    def getAffectedNeighborhood(self, vertex):
-        affectedNeighbours = set()
-
-        affectedNeighbours.update(self.getAffectedNeighborhood2(vertex, self.m_mrg.getVertices()))
-        
-        if vertex in affectedNeighbours:
-            affectedNeighbours.remove(vertex)
-            print(vertex)
-        
-        
-
-        queue = []
-        queue.extend(affectedNeighbours)
-
-        while queue:
-            first = queue.pop(0)
-
-            neighbours = self.getAffectedNeighborhood2(first, self.m_mrg.getVertices())
-            neighbours.remove(vertex)
-
-            for v in neighbours:
-                if v not in affectedNeighbours:
-                    affectedNeighbours.add(v)
-                    queue.append(v)
-
-        assert vertex not in affectedNeighbours
-
-        return affectedNeighbours
-                                  
-    def delete(self, mc):
-        assert mc.getVertexRepresentative() != None, "Vertex reference is missing"
-        toDelete = mc.getVertexRepresentative()
-
-        if len(self.m_mrg.getVertices()) - 1 <= self.m_mrg.getMinPts():
-            self.m_mst = None
-            return None
-
-        affectedNeighbours = self.getAffectedNeighborhood(toDelete)
-
-        self.updateMRG_Del(toDelete)
-        for affected in affectedNeighbours:
-            self.updateCoreDistance(affected, self.m_mrg.getVertices(), self.m_mrg.getMinPts())
-
-        for affected in affectedNeighbours:
-            edges = self.m_mrg.getAdjacentEdges(affected)
-            for e in edges:
-                adjacent = e.getAdjacentVertex(affected)
-                max_val = self.m_mrg.getMutualReachabilityDistance(affected, adjacent)
-                if e.getWeight() < max_val:
-                    e.setEdgeWeight(max_val)
-
-        for w in affectedNeighbours:
-            for adj in self.m_mrg.adjacencyList(w).keys():
-                max_val = self.m_mrg.getMutualReachabilityDistance(w, adj)
-                if w != adj:
-                    self.m_mrg.getEdge(w, adj).setEdgeWeight(max_val)
-
-        mst_components = self.removeFromMST_Del(toDelete, affectedNeighbours)
-
-        superVertices = set()
-        for c in mst_components:
-            superVertices.add(SuperVertex(c))
-
-        assert len(mst_components) == len(superVertices)
-
-        self.m_mst = self.updateMST_Del(superVertices)
-
-        return self.m_mst
-                                  
-    def updateMRG_Del(self, v):
-        toRemove = set()
-        toRemove.update(self.m_mrg.adjacencyList(v).values())
-        for edge in toRemove:
-            self.m_mrg.removeEdge2(edge)
-        self.m_mrg.removeVertex(v)
-
-    def updateCoreDistance(self, vertex, vertices, minPts):
-        lista = []
-
-        dist = -1.0
-        for v in vertices:
-            dist = vertex.getDistance(v)
-            lista.append(Neighbour(v, dist))
-
-        assert lista.size() == len(vertices)
-
-        coreDist = lista[minPts - 1]
-        vertex.setCoreDistance(coreDist)
-    
-    def removeFromMST_Del(self, toDelete, affectedNeighbours):
-        components = set()
-        startVertices = set()
-
-        toRemove = set()
-        print(self.m_mst.getAdjacentEdges(toDelete).values())
-        toRemove.update(self.m_mst.getAdjacentEdges(toDelete).values())
-
-        for edge in toRemove:
-            self.m_mst.removeEdge2(edge)
-            startVertices.add(edge.getAdjacentVertex(toDelete))
-        self.m_mst.removeVertex(toDelete)
-
-        for v in affectedNeighbours:
-            toRemove.clear()
-            toRemove.update(self.m_mst.getAdjacentEdges(v))
-
-            adjVertices = set()
-            for edge in toRemove:
-                adj = edge.getAdjacentVertex(v)
-                adjVertices.add(adj)
-                self.m_mst.removeEdge2(edge)
-
-            for adj in adjVertices:
-                startVertices.add(adj)
-
-            startVertices.add(v)
-
-        for startVertex in startVertices:
-            newComponent = True
-            for c in components:
-                if c.containsVertex(startVertex):
-                    newComponent = False
-                    break
-            if newComponent:
-                debug = Component(startVertex, self.m_mst, True)
-                components.add(debug)
-
-        self.assertNumVertices(components, self.m_mst.numVertices())
-
-        return components
-
-    def assertNumVertices(self, components, numVertices):
-        sum_numVertices = 0
-        pairwiseDifferent = True
-        for c in components:
-            sum_numVertices += c.numVertices()
-            for other in components:
-                if c != other:
-                    pairwiseDifferent &= not c.compareByVertices(other)
-
-        return pairwiseDifferent and sum_numVertices == numVertices
-    
-    def updateMST_Del(self, superVertices):
-        scgraph = SuperCompleteGraph(superVertices, self.m_mrg)
-        scgraph.buildGraph()
-        new_mst = SuperMinimalSpaningTree(scgraph)
-        new_mst.buildGraph()
-        return new_mst
-                                  
 class Component(AbstractGraph):
-    def __init__(self, startVertex: Vertex, graph: AbstractGraph, prepareEdges: bool):
-        super().__init__()     
-        self.m_prepare_edges = prepareEdges
+    def __init__(self, startVertex: Vertex, graph: AbstractGraph, prepareEdges : bool):
+        super().__init__()
+        
         self.m_edges_summarized_by_weight = {}
+        self.m_prepare_edges              = prepareEdges
         
         self.addVertex(startVertex)
         if graph.hasSelfLoop(startVertex):
@@ -1321,28 +931,52 @@ class Component(AbstractGraph):
 class Node:
     s_label = 0
 
-    def __init__(self, c):
-        self.m_vertices = set(c)
-        self.m_children = []
-        self.m_delta = True
-        self.m_label = Node.s_label
-        Node.s_label += 1
-        self.m_parent = None
+    def __init__(self, c, timestamp):
+        self.m_vertices   = set(c)
+        self.m_children   = []
+        self.m_delta      = True
+        self.m_label      = Node.s_label
+        self.m_id         = Node.s_label
+        Node.s_label      += 1
+        self.m_parent     = None
         self.m_scaleValue = 0
+        self.m_stability  = 0.0
+        self.timestamp    = timestamp
         
+    def getID(self):
+        return self.m_id
+    
+    def getInternalPoints(self):
+        numPoints = 0.0
 
+        for v in self.getVertices():
+            numPoints += v.getDataBubble()._weight(self.timestamp)
+            
+        return numPoints
+    
+    def computeStabilityNew(self) -> float:
+        self.m_stability = 0.0
+        eps_max          = self.m_scaleValue
+        
+        for child in self.getChildren():
+            self.m_stability += child.getInternalPoints() * ((1.0 / child.getScaleValue()) - (1.0 / eps_max))
+
+        #print("<<< ", self.m_stability)
+        return self.m_stability
+    
     def computeStability(self) -> float:
         if self.m_parent is None:
             return float('nan')
 
         eps_max = self.m_parent.m_scaleValue
-        eps_min = self.m_scaleValue        
+        eps_min = self.m_scaleValue
         
         if eps_max == 0:
             eps_max = 0.0000000001
         if eps_min == 0:
             eps_min = 0.0000000001
         
+        # É o somatório dos pesos vezes a densidade minima (quando o Cluster foi criado) + a densidade máxima (quando o DB saiu do cluster)
         self.m_stability = len(self.m_vertices) * ((1 / eps_min) - (1 / eps_max))
 
         return self.m_stability
@@ -1352,6 +986,15 @@ class Node:
 
     def getChildren(self):
         return self.m_children
+    
+    def getChildrenMinClusterSize(self, min_cluster_size):
+        children = []
+        
+        for child in self.getChildren():
+            if child.getInternalPoints() >= min_cluster_size:
+                children.append(child)
+            
+        return children
 
     def setParent(self, parent):
         self.m_parent = parent
@@ -1400,13 +1043,13 @@ class Node:
         return f'{len(self.m_vertices)},{self.m_scaleValue},{self.m_stability}'
 
     def getGraphVizNodeString(self):
-        return f'node{self.m_label}'
+        return "node" + str(self.m_label)
 
     def getGraphVizEdgeLabelString(self):
-        return f'[label="{self.m_scaleValue}"];'
+        return "[label=\"{:.2f}\"];".format(self.m_scaleValue)
 
     def getGraphVizString(self):
-        return f'{self.getGraphVizNodeString()} [label="Num={len(self.m_vertices)}[SV,SC,D]:{{{self.m_scaleValue}; {self.m_stability}; {self.m_delta}}}""];'
+        return "{} [label=\"Num={}[SV,SC,D,P]:{{ {:.4f}; {:.10f}; {}; ".format(self.getGraphVizNodeString(), len(self.m_vertices), self.m_scaleValue, self.m_stability, self.m_delta)
 
     def setVertices(self, vertices ):
         self.m_vertices = set(vertices)
@@ -1422,12 +1065,9 @@ class DendrogramComponent(Component):
 
         self.addVertex(start_vertex)
         
-        
         if graph.hasSelfLoop(start_vertex):
             self.addEdge(start_vertex, start_vertex, graph.getEdge(start_vertex, start_vertex))
         
-            
-
         self.build(start_vertex, graph)
          
 
@@ -1465,13 +1105,8 @@ class DendrogramComponent(Component):
             highest = -1.0
             
             for weight in self.m_edges_summarized_by_weight.keys():
-                
-                if type(weight) == Edge:
-                    weight = weight.getWeight()
-                
                 if weight > highest:
                     highest = weight
-            
             
             if highest == -1:
                 self.m_set_of_highest_weighted_edges = None
@@ -1481,12 +1116,11 @@ class DendrogramComponent(Component):
 
     def getNextSetOfHeighestWeightedEdges(self):
         if self.m_set_of_highest_weighted_edges is None or len(self.m_set_of_highest_weighted_edges) == 0:
-            
             self.setHeighestWeightedEdges()
-        
         
         res = self.m_set_of_highest_weighted_edges
         self.setHeighestWeightedEdges()  # prepare next step
+        
         return res
 
     def splitComponent(self, e: Edge):
@@ -1514,6 +1148,7 @@ class DendrogramComponent(Component):
 
     def getNode(self):
         return self.m_node
+    
     def getMEdge(self):
         return self.m_edges_summarized_by_weight
 
@@ -1526,12 +1161,13 @@ class DendrogramComponent(Component):
         return f"[{''.join(sb)}]"
 
 class Dendrogram:
-    def __init__(self, mst: MinimalSpaningTree, min_cluster_size: int, timestamp):        
+    def __init__(self, mst: MinimalSpaningTree, min_cluster_size: int, minPts: int,timestamp):        
         assert len(mst.getVertices()) > 0
         Node.resetStaticLabelCounter()
 
         self.m_components     = []
         self.m_minClusterSize = min_cluster_size
+        self.m_minPts         = minPts
         first                 = None
         it                    = iter(mst.getVertices())
         self.timestamp        = timestamp
@@ -1543,88 +1179,16 @@ class Dendrogram:
 
         self.m_mstCopy = DendrogramComponent(first, mst, True)
         
+        self.m_root = Node(self.m_mstCopy.getVertices(), self.timestamp)
         
-        self.m_root = Node(self.m_mstCopy.getVertices())
-        
-        self.spurious_1 = 0
+        self.spurious_1   = 0
         self.spurious_gr2 = 0
         
         self.m_mstCopy.setNodeRepresentitive(self.m_root)
         self.m_components.append(self.m_mstCopy)
+        self.len_mst = len(mst.getVertices())
 
     def build(self):
-        self.experimental_build()
-
-    def compare(self, n1: Node):
-        return n1.getScaleValue()
-
-    def clusterSelection(self):
-        selection = []
-
-        # Step 1
-        leaves = self.getLeaves(self.m_root)
-        
-        for leaf in leaves:
-            leaf.setPropagatedStability(leaf.computeStability())
-
-        # Special case
-        if len(leaves) == 1 and leaves[0] == self.m_root:
-            selection.append(self.m_root)
-            return selection
-
-        queue = []
-        for leaf in leaves:
-            if leaf.getParent() is not None and leaf.getParent() not in queue:
-                queue.append(leaf.getParent())
-        
-        queue.sort(key=self.compare)
-
-        # Step 2
-        while queue and queue[0] != self.m_root:
-            current = queue[0]
-            current_stability = current.computeStability()
-            s = sum(child.getPropagatedStability() for child in current.getChildren())
-            if current_stability < s:
-                current.setPropagatedStability(s)
-                current.resetDelta()
-            else:
-                current.setPropagatedStability(current_stability)
-            queue.remove(current)
-            if current.getParent() not in queue and current.getParent() is not None:
-                queue.append(current.getParent())
-            queue.sort(key=self.compare)
-
-        # get clustering selection
-        selection_queue = self.m_root.getChildren().copy()
-        self.m_root.resetDelta()
-
-        while selection_queue:
-            current = selection_queue.pop(0)
-            if not current.isDiscarded():
-                selection.append(current)
-            else:
-                selection_queue.extend(current.getChildren())
-
-        return selection
-
-    @staticmethod
-    def getLeaves(node: Node):
-        res = []
-        queue = [node]
-
-        while queue:
-            n = queue.pop(0)
-
-            if len(n.getChildren()) > 0:
-                queue.extend(n.getChildren())
-            elif len(n.getChildren()) == 0:
-                res.append(n)
-            #queue.pop(0)
-
-        return res
-    
-    def experimental_build(self):
-    
         # Get set of edges with the highest weight
         
         next = self.m_mstCopy.getNextSetOfHeighestWeightedEdges()
@@ -1690,7 +1254,7 @@ class Dendrogram:
                     count     = 0
 
                     for v in c.getVertices():
-                        numPoints += v.getMicroCluster().getWeight(self.timestamp)
+                        numPoints += v.getDataBubble()._weight(self.timestamp)
                         count     += 1
 
                     if numPoints >= self.m_minClusterSize or count >= self.m_minClusterSize:
@@ -1715,7 +1279,7 @@ class Dendrogram:
 
                     for c in spuriousList:
                         # generate new child node with currentNode as parent node
-                        child = Node(c.getVertices())
+                        child = Node(c.getVertices(), self.timestamp)
 
                         child.setParent(currentNode)
 
@@ -1749,31 +1313,459 @@ class Dendrogram:
                 else:
                     i += 1
         return to_remove
-            
-class HDBStream(base.Clusterer):
     
+    def getLeaves(self, node):
+        res   = []
+        queue = [node]
+
+        while queue:
+            n = queue.pop(0)
+            
+            count = 0
+            
+            for child in n.getChildrenMinClusterSize(self.m_minClusterSize):
+                count += 1
+                queue.append(child)
+            
+            if count == 0:
+                res.append(n)
+
+        return res
+
+    # Compare to Nodes
+    def compareNode(self, n: Node):
+        return (n.getScaleValue(), n.getInternalPoints())
+    
+    def clusterSelection(self):
+        selection = []
+
+        # Step 1
+        leaves = self.getLeaves(self.m_root)
+        
+        for leaf in leaves:
+            #print("leaf ", leaf.getInternalPoints())
+            leaf.setPropagatedStability(leaf.computeStability())
+            #print("SC: ", leaf.getStability())
+
+        # Special case
+        if len(leaves) == 1 and leaves[0] == self.m_root:
+            selection.append(self.m_root)
+            
+            return selection
+
+        queue = []
+        
+        # add the Parent of the leaves
+        for leaf in leaves:
+            if leaf.getParent() is not None and leaf.getParent() not in queue:
+                queue.append(leaf.getParent())
+        
+        queue.sort(key=self.compareNode)
+        
+        #for i in queue:
+        #    print("ord: ", i.getInternalPoints())
+        
+        # Step 2
+        while queue:
+            current           = queue[0]
+            current_stability = current.computeStability()
+            
+            children_sum_stability = 0.0
+            
+            #print("Pai ", current.getInternalPoints())
+            
+            #for child in current.getChildrenMinClusterSize(self.m_minClusterSize):
+                #print("Child ", child.getInternalPoints())
+            #    children_sum_stability += child.getPropagatedStability()
+                
+            children_sum_stability = sum(child.getPropagatedStability() for child in current.getChildrenMinClusterSize(self.m_minClusterSize))
+            
+            #print("> Stability Pai: ", current_stability)
+            #print("> Stability Children: ", children_sum_stability)
+            
+            if current_stability < children_sum_stability:
+                current.setPropagatedStability(children_sum_stability)
+                current.resetDelta()
+            else:
+                current.setPropagatedStability(current_stability)
+            
+            for c in current.getChildrenMinClusterSize(self.m_minClusterSize):
+                if c.getPropagatedStability() == 0:
+                    c.resetDelta()
+            
+            queue.remove(current)
+            
+            if current.getParent() not in queue and current.getParent() is not None:
+                queue.append(current.getParent())
+        
+            queue.sort(key=self.compareNode)
+
+        # get clustering selection
+        selection_queue = self.m_root.getChildrenMinClusterSize(self.m_minClusterSize).copy()
+        self.m_root.resetDelta()
+
+        while selection_queue:
+            current = selection_queue.pop(0)
+            
+            if not current.isDiscarded():
+                #print("Node: ", current.getInternalPoints())
+                selection.append(current)
+            else:
+                selection_queue.extend(current.getChildrenMinClusterSize(self.m_minClusterSize))
+                
+        #self.condensedTreePlot(selection)
+        return selection
+    
+    def getLeavesDfs(self, node):
+        res = []
+        
+        if len(node.getChildrenMinClusterSize(self.m_minClusterSize)) == 0:
+            res.append(node)
+            return res
+
+        for n in node.getChildrenMinClusterSize(self.m_minClusterSize):
+            res.extend(self.getLeavesDfs(n))
+
+        return res      
+        
+    def condensedTreePlot(self, selection, select_clusters = True, selection_palette = None, label_clusters = False):
+        
+        cluster_x_coords = {}
+
+        leaves = self.getLeavesDfs(self.m_root)
+        leaf_position = 0.0
+
+        # set coords X from leaves
+        for leaf in leaves:
+            cluster_x_coords[leaf] = leaf_position
+            leaf_position += 1
+        
+        # add the x and y coordinates for the clusters
+        queue = []
+        
+        queue.extend(leaves)
+        
+        queue.sort(key = self.compareNode)
+        
+        cluster_y_coords = {self.m_root: 0.0}
+
+        while queue:
+            n        = queue[0]
+            children = n.getChildrenMinClusterSize(self.m_minClusterSize)
+            
+            if len(children) > 1:
+                left_child = children[0]
+                right_child = children[1]
+                
+                mean_coords_children = (cluster_x_coords[left_child] + cluster_x_coords[right_child]) / 2.0
+                cluster_x_coords[n] = mean_coords_children
+                
+                cluster_y_coords[left_child] = 1.0 / left_child.getScaleValue()
+                cluster_y_coords[right_child] = 1.0 / right_child.getScaleValue()
+                
+            if n.getParent() is not None and n.getParent() not in queue:
+                queue.append(n.getParent())
+
+            queue.remove(n)
+            queue.sort(key = self.compareNode)
+
+        #print("> 1º While")
+
+        # set scaling to plot
+        root    = self.m_root
+        scaling = 0
+        
+        for c in self.m_root.getChildren():
+            scaling += len(c.getVertices())
+        
+        cluster_bounds = {}
+
+        bar_centers = []
+        bar_heights = []
+        bar_bottoms = []
+        bar_widths  = []
+
+        # set bar configuration
+        queue.clear()
+        
+        queue = [self.m_root]
+
+        while queue:
+            c = queue[0]
+            
+            cluster_bounds[c] = [0, 0, 0, 0]
+            
+            n_children = c.getChildren()
+            
+            if len(n_children) == 0:
+                queue.remove(c)
+                continue            
+            
+            current_size = 0           
+            
+            max_lambda = []
+            for a in n_children:
+                current_size += len(a.getVertices())
+                max_lambda.append(1.0 / a.getScaleValue())
+            
+            current_lambda   = cluster_y_coords[c]
+            cluster_max_size = current_size
+            
+            cluster_max_lambda = max_lambda[-1]
+            
+            cluster_min_size = 0
+            
+            for b in n_children:
+                if (1.0 / b.getScaleValue())  == cluster_max_lambda:
+                    cluster_min_size += len(b.getVertices())
+            
+            #2000
+            max_rectangle_per_icicle = 20
+            total_size_change        = float(cluster_max_size - cluster_min_size)
+            step_size_change         = total_size_change / max_rectangle_per_icicle
+            
+            cluster_bounds[c][0] = cluster_x_coords[c] * scaling - (current_size / 2.0)
+            cluster_bounds[c][1] = cluster_x_coords[c] * scaling + (current_size / 2.0)
+            cluster_bounds[c][2] = cluster_y_coords[c]
+            cluster_bounds[c][3] = cluster_max_lambda
+            
+            last_step_size   = current_size
+            last_step_lambda = current_lambda
+            
+            
+            for i in n_children:
+                
+                if (1.0 / i.getScaleValue())  != current_lambda and (last_step_size - current_size > step_size_change or (1.0 / i.getScaleValue()) == cluster_max_lambda):
+                    bar_centers.append(cluster_x_coords[c] * scaling)
+                    bar_heights.append((1.0 / i.getScaleValue()) - last_step_lambda)
+                    bar_bottoms.append(last_step_lambda)
+                    bar_widths.append(last_step_size)
+                    last_step_size   = current_size
+                    last_step_lambda = current_lambda
+                else:
+                    current_size -= len(i.getVertices())
+                    
+                current_lambda = 1.0 / i.getScaleValue()
+            
+            if c.getChildrenMinClusterSize(self.m_minClusterSize) is not None:
+                queue.extend(c.getChildrenMinClusterSize(self.m_minClusterSize))
+
+            queue.remove(c)
+
+        #print("> 2º While")
+
+        # set lines to plot
+        line_xs = []
+        line_ys = []
+
+        queue_dendrogram = []
+        queue_dendrogram.append(self.m_root)
+
+        while queue_dendrogram:
+            n = queue_dendrogram[0]
+            children = n.getChildrenMinClusterSize(self.m_minClusterSize)
+
+            for n_child in children:
+                sign = 1
+
+                if (cluster_x_coords[n_child] - cluster_x_coords[n]) < 0:
+                    sign = -1
+
+                line_xs.append((cluster_x_coords[n] * scaling, cluster_x_coords[n_child] * scaling + sign * (len(n_child.getVertices()) / 2.0)))
+                line_ys.append((cluster_y_coords[n_child],cluster_y_coords[n_child]))
+            
+            if len(children) != 0:
+                queue_dendrogram.extend(children)
+                
+            queue_dendrogram.remove(n)
+
+        #print("> 3º While")
+        
+        fig, ax = plt.subplots(figsize=(16, 10))
+
+        # Bars max(bar_widths)
+        
+        sm = plt.cm.ScalarMappable(cmap='viridis', norm=plt.Normalize(0, self.len_mst))
+        sm.set_array([x  for x in bar_widths ])
+        bar_colors = [sm.to_rgba(x) for x in bar_widths]
+        
+        ax.bar(
+            bar_centers,
+            bar_heights,
+            bottom=bar_bottoms,
+            width=bar_widths,
+            color=bar_colors,
+            align='center',
+            linewidth=0
+        )
+        
+        for i in range(len(line_xs)):
+            ax.plot(*[[line_xs[i][0], line_xs[i][1]], [line_ys[i][0], line_ys[i][1]]], color='black', linewidth=1)
+        
+        cluster_bounds2 = cluster_bounds
+        
+        if select_clusters:
+            try:
+                from matplotlib.patches import Ellipse
+            except ImportError:
+                raise ImportError('You must have matplotlib.patches available to plot selected clusters.')
+
+            chosen_clusters = selection
+            
+            # Extract the chosen cluster bounds. If enough duplicate data points exist in the
+            # data the lambda value might be infinite. This breaks labeling and highlighting
+            # the chosen clusters.
+            cluster_bounds = np.array([ cluster_bounds[c] for c in chosen_clusters ])
+            
+            if not np.isfinite(cluster_bounds).all():
+                warn('Infinite lambda values encountered in chosen clusters.'
+                     ' This might be due to duplicates in the data.')
+
+            # Extract the plot range of the y-axis and set default center and height values for ellipses.
+            # Extremly dense clusters might result in near infinite lambda values. Setting max_height
+            # based on the percentile should alleviate the impact on plotting.
+            plot_range    = np.hstack([bar_heights, bar_bottoms])
+            plot_range    = plot_range[np.isfinite(plot_range)]
+            mean_y_center = np.mean([np.max(plot_range), np.min(plot_range)])
+            max_height    = np.diff(np.percentile(plot_range, q=[10,90]))
+
+            for c in chosen_clusters:
+                c_bounds = cluster_bounds2[c]
+                #print("c_bounds: ", c_bounds)
+                width  = (c_bounds[1] - c_bounds[0])
+                height = (c_bounds[3] - c_bounds[2])
+                center = (
+                    np.mean([c_bounds[0], c_bounds[1]]),
+                    np.mean([c_bounds[3], c_bounds[2]]),
+                )
+                
+                # Set center and height to default values if necessary
+                if not np.isfinite(center[1]):
+                    center = (center[0], mean_y_center)
+                if not np.isfinite(height):
+                    height = max_height
+
+                # Ensure the ellipse is visible
+                min_height = 0.1*max_height
+                if height < min_height:
+                    height = min_height
+
+                if selection_palette is not None and \
+                        len(selection_palette) >= len(chosen_clusters):
+                    oval_color = selection_palette[i]
+                else:
+                    oval_color = 'r'
+
+                box = Ellipse(
+                    center,
+                    2.0 * width,
+                    1.2 * height,
+                    facecolor='none',
+                    edgecolor=oval_color,
+                    linewidth=2
+                )
+
+                if label_clusters:
+                    ax.annotate(str(i), xy=center,
+                                  xytext=(center[0] - 4.0 * width, center[1] + 0.65 * height),
+                                  horizontalalignment='left',
+                                  verticalalignment='bottom')
+
+                ax.add_artist(box)
+
+        cb = plt.colorbar(sm, ax=ax)
+        cb.ax.set_ylabel('Number of Data Bubbles', fontsize=36)
+                                    
+        # Cantos do plot
+        ax.set_xticks([])
+        for side in ('right', 'top', 'bottom'):
+            ax.spines[side].set_visible(False)
+
+        ax.invert_yaxis()
+
+        ax.set_ylabel('$\lambda$ value', fontsize=30)
+
+        # Legend
+        ax.set_title("Dendrogram", fontsize=34, pad=24)
+        #ax.legend(bbox_to_anchor=(0, 1.03, 1, 0.2), loc="lower left", borderaxespad=0, fontsize=28)
+
+        #plt.show()
+        
+        m_directory = os.path.join(os.getcwd(), "results/dendrograms/dendrograms_t" + str(self.timestamp))
+        
+        if not os.path.exists(m_directory):
+            os.makedirs(m_directory)
+                
+        fig.savefig("results/dendrograms/dendrograms_t" + str(self.timestamp) + "/minpts_" + str(self.m_minPts) + ".png")
+        plt.close()
+    
+    def getGraphVizString(self):
+        newline = "\n"
+        tab     = "\t"
+        
+        sb    = ["graph{" + newline]
+        queue = [self.m_root]
+        size  = len(queue)
+        
+        i = 0
+
+        while i < size:
+            n = queue[i]
+            sb.append(tab + n.getGraphVizString())
+            
+            numPoint = n.getInternalPoints()
+            
+            sb.append(str(numPoint) + "}> ")
+            
+            for v in n.getVertices():
+                sb.append(str(v.getID()) + ",")
+            
+            sb.append("\"];" + newline)
+            #sb.append(str(numPoint) + "}\"];" + newline)
+            
+            children = n.getChildrenMinClusterSize(self.m_minClusterSize)
+            #children = n.getChildren()
+            
+            for child in children:
+                numPoint = child.getInternalPoints()
+                
+                size += 1
+                
+                queue.append(child)
+                    
+                sb.append(tab + n.getGraphVizNodeString() + " -- " + child.getGraphVizNodeString())
+                sb.append(newline)
+            
+            i += 1
+
+        sb.append("}")
+        
+        print(''.join(sb))
+
+class CoreStream(base.Clusterer):
+
     class BufferItem:
         def __init__(self, x, timestamp, covered):
-            self.x         = x
+            self.x = x
             self.timestamp = (timestamp,)
-            self.covered   = covered
-
+            self.covered = covered
+    
     def __init__(
         self,
         m_minPoints            = 10,
+        min_cluster_size       = 10,
         decaying_factor: float = 0.25,
-        beta: float            = 0.75,
-        mu: float              = 2,
-        epsilon: float         = 0.02,
-        n_samples_init: int    = 1000,
-        stream_speed: int      = 3000,
-        step                   = 1,
-        m_movementThreshold    = 0.5,
-        runtime                = False,
-        plot                   = False,
-        save_partitions        = False,
+        beta:            float = 0.75, 
+        mu:              float = 2,
+        epsilon:         float = 0.02,
+        n_samples_init:  int   = 2000,
+        stream_speed:    int   = 100,
         percent                = 0.1,
         method_summarization   = 'single_linkage',
+        step                   = 1,
+        runtime                = False,
+        plot                   = False,
+        save_partitions        = False
     ):
         super().__init__()
         self.percent              = percent
@@ -1786,36 +1778,37 @@ class HDBStream(base.Clusterer):
         self.n_samples_init       = n_samples_init
         self.stream_speed         = stream_speed
         self.mst                  = None
-        self.mst_mult             = None
         self.m_minPoints          = m_minPoints
+        self.min_cluster_size     = min_cluster_size
         self.step                 = step
-        self.m_movementThreshold  = m_movementThreshold
+        self.method_summarization = method_summarization
         self.runtime              = runtime
         self.plot                 = plot
         self.save_partitions      = save_partitions
-        self.method_summarization = method_summarization
         
         # number of clusters generated by applying the variant of DBSCAN algorithm
         # on p-micro-cluster centers and their centers
         self.n_clusters = 0
         
-        self.clusters: typing.Dict[int, "MicroCluster"]         = {}
-        self.p_micro_clusters: typing.Dict[int, "MicroCluster"] = {}
-        self.o_micro_clusters: typing.Dict[int, "MicroCluster"] = {}
+        self.clusters: typing.Dict[int, "DataBubble"]       = {}
+        self.p_data_bubbles: typing.Dict[int, "DataBubble"] = {}
+        self.o_data_bubbles: typing.Dict[int, "DataBubble"] = {}
         
-        #mudei o método pq estava dando erro e não estavamos precisando no momento
         self._time_period = math.ceil((1 / self.decaying_factor) * math.log((self.mu * self.beta) / (self.mu * self.beta - 1))) + 1
+        print("Time period: ", self._time_period)
         
-        print("self._time_period", self._time_period)
-        self._init_buffer: typing.Deque[typing.Dict] = deque()
+        if self.method_summarization == 'epsilon':
+            self._init_buffer: typing.Deque[typing.Dict] = deque()
+        else:
+            self._init_buffer = []
         
         self._n_samples_seen = 0
         self.m_update        = None
-
+        
         # DataFrame to save the runtimes
         if self.runtime:
-            self.df_runtime_final  = pd.DataFrame(columns=['timestamp', 'micro_clusters', 'summarization', 'multiple_hierarchies'])
-            self.df_runtime        = pd.DataFrame(columns=['minpts', 'mrg', 'mst', 'dendrogram', 'selection', 'total'])
+            self.df_runtime_final  = pd.DataFrame(columns=['timestamp', 'data_bubbles', 'summarization', 'mrg', 'mst', 'core_sg', 'multiple_hierarchies'])
+            self.df_runtime_stream = pd.DataFrame(columns=['minpts', 'core_sg', 'mst', 'dendrogram', 'selection', 'total'])
 
         # check that the value of beta is within the range (0,1]
         if not (0 < self.beta <= 1):
@@ -1823,7 +1816,7 @@ class HDBStream(base.Clusterer):
 
     @property
     def centers(self):
-        return {k: cluster.calc_center(self.timestamp) for k, cluster in self.clusters.items()}
+        return {k: cluster.getRep(self.timestamp) for k, cluster in self.clusters.items()}
 
     @staticmethod
     def _distance(point_a, point_b):
@@ -1834,7 +1827,20 @@ class HDBStream(base.Clusterer):
             square_sum += math.pow(point_a[i] - point_b[i], 2)
         
         return math.sqrt(square_sum)
-    
+
+    def _get_closest_cluster_key(self, point, clusters):
+        min_distance = math.inf
+        key          = -1
+        
+        for k, cluster in clusters.items():
+            distance = self.distanceEuclidian(cluster.getRep(self.timestamp), point)
+            
+            if distance < min_distance and distance <= self.epsilon:
+                min_distance = distance
+                key          = k
+                
+        return key
+
     def distanceEuclidian(self, x1, x2):
         distance = 0
         
@@ -1843,186 +1849,189 @@ class HDBStream(base.Clusterer):
             distance += d * d
             
         return math.sqrt(distance)
-
-    def _get_closest_cluster_key(self, point, clusters):
-        min_distance = math.inf
-        key          = -1
+    
+    # Merge from Hastream
+    def _merge_has(self, point):
+        # initiate merged status
+        merged_status = False
         
-        for k, cluster in clusters.items():
-            distance = self.distanceEuclidian(cluster.getCenter(self.timestamp), point)
-            
-            if distance < min_distance and distance <= self.epsilon:
-                min_distance = distance
-                key          = k
-                
-        return key
+        pos = self._n_samples_seen - 1
 
+        if len(self.p_data_bubbles) != 0:
+            # try to merge p into its nearest p-micro-cluster c_p
+            closest_pdb_key = self._get_closest_cluster_key(point, self.p_data_bubbles)
+            
+            if closest_pdb_key != -1:
+                updated_pdb     = copy.deepcopy(self.p_data_bubbles[closest_pdb_key])
+                updated_pdb.insert(point, self.timestamp)
+
+                if updated_pdb.getExtent(self.timestamp) <= self.epsilon:
+                    # keep updated p-micro-cluster
+                    self.p_data_bubbles[closest_pdb_key]   = updated_pdb
+                    df_bubbles_to_points.loc[pos, 'id_db'] = closest_pdb_key
+
+                    merged_status = True
+
+        if not merged_status and len(self.o_data_bubbles) != 0:
+            
+            closest_odb_key = self._get_closest_cluster_key(point, self.o_data_bubbles)
+            
+            if closest_pdb_key != -1:
+                updated_odb     = copy.deepcopy(self.o_data_bubbles[closest_odb_key])
+                updated_odb.insert(point, self.timestamp)
+
+                if updated_pdb.getExtent(self.timestamp) <= self.epsilon:
+                    # keep updated o-micro-cluster
+                    if updated_odb.getWeight(self.timestamp) > self.mu * self.beta:
+                        # it has grown into a p-micro-cluster
+                        del self.o_data_bubbles[closest_odb_key]
+                        updated_odb.setStaticCenter(self.timestamp)
+
+                        new_key = 0
+
+                        if not list(self.p_data_bubbles.keys()):
+                            updated_omc.setID(0)
+                            self.p_data_bubbles[0] = updated_odb
+                        else:
+                            new_key = 1
+
+                            while new_key in self.p_data_bubbles:
+                                new_key += 1
+
+                            updated_odb.setID(new_key)
+
+                            self.p_data_bubbles[new_key] = updated_odb
+
+                        df_bubbles_to_points.loc[pos, 'id_db'] = new_key
+
+                        df_bubbles_to_points['id_db'] = df_bubbles_to_points['id_db'].replace((-1) * closest_odb_key, new_key)
+
+                    else:
+                        self.o_data_bubbles[closest_odb_key] = updated_odb                    
+
+                        # Outliers have our key negative
+                        df_bubbles_to_points.loc[pos, 'id_db'] = (-1) * closest_odb_key
+
+                else:
+                    # create a new o-data_bubble by p and add it to o_micro_clusters
+                    db_from_p = DataBubble(x=point, timestamp=self.timestamp, decaying_factor=self.decaying_factor)
+
+                    key_o = 2
+
+                    while key_o in self.o_data_bubbles:
+                        key_o += 1
+
+                    self.o_data_bubbles[key_o] = db_from_p
+
+                    df_bubbles_to_points.loc[pos, 'id_db'] = (-1) * key_o
+
+                merged_status = True
+
+        # when p is not merged and o-micro-cluster set is empty
+        if not merged_status and len(self.o_data_bubbles) == 0:
+            db_from_p = DataBubble(x=point, timestamp=self.timestamp, decaying_factor=self.decaying_factor)
+
+            self.o_data_bubbles = {2: db_from_p}
+
+            df_bubbles_to_points.loc[pos, 'id_db'] = -2
+            
+            merged_status = True
+    
+    # Merge from CoreStream
     def _merge(self, point):
         # initiate merged status
         merged_status = False
 
         pos = self._n_samples_seen - 1
 
-        if len(self.p_micro_clusters) != 0:
-            # try to merge p into its nearest p-micro-cluster c_p
-            closest_pmc_key = self._get_closest_cluster_key(point, self.p_micro_clusters)
+        if len(self.p_data_bubbles) != 0:
+            # try to merge p into its nearest p-data_bubble c_p
+            closest_pdb_key = self._get_closest_cluster_key(point, self.p_data_bubbles)
             
-            if closest_pmc_key != -1:
-                updated_pmc = copy.deepcopy(self.p_micro_clusters[closest_pmc_key])
-                updated_pmc.insert(point, self.timestamp)
+            if closest_pdb_key != -1:
+                updated_pdb = copy.deepcopy(self.p_data_bubbles[closest_pdb_key])
+                updated_pdb.insert(point, self.timestamp)
                 
-                if updated_pmc.getRadius(self.timestamp) <= self.epsilon:
-                    # keep updated p-micro-cluster
-                    self.p_micro_clusters[closest_pmc_key] = updated_pmc
+                if updated_pdb.getExtent(self.timestamp) <= self.epsilon:
+                    # keep updated p-data_bubble
+                    self.p_data_bubbles[closest_pdb_key] = updated_pdb
 
-                    df_mc_to_points.loc[pos, 'id_mc'] = closest_pmc_key
+                    df_bubbles_to_points.loc[pos, 'id_bubble'] = closest_pdb_key
 
                     merged_status = True
 
         if not merged_status:
-            closest_omc_key = self._get_closest_cluster_key(point, self.o_micro_clusters)
+            closest_odb_key = self._get_closest_cluster_key(point, self.o_data_bubbles)
             
-            if closest_omc_key != -1:
-                updated_omc = copy.deepcopy(self.o_micro_clusters[closest_omc_key])
-                updated_omc.insert(point, self.timestamp)
+            if closest_odb_key != -1:
+                updated_odb = copy.deepcopy(self.o_data_bubbles[closest_odb_key])
+                updated_odb.insert(point, self.timestamp)
 
-                if updated_omc.getRadius(self.timestamp) <= self.epsilon:
+                if updated_odb.getExtent(self.timestamp) <= self.epsilon:
                     # keep updated o-micro-cluster
-                    weight_omc = updated_omc.getWeight(self.timestamp)
+                    weight_odb = updated_odb._weight(self.timestamp)
                     
-                    if weight_omc > self.mu * self.beta:
+                    if weight_odb > self.mu * self.beta:
                         # it has grown into a p-micro-cluster
-                        del self.o_micro_clusters[closest_omc_key]
+                        del self.o_data_bubbles[closest_odb_key]
 
                         new_key = 0
                         
-                        while new_key in self.p_micro_clusters:
+                        while new_key in self.p_data_bubbles:
                             new_key += 1
                             
-                        updated_omc.setID(new_key)
-                        self.p_micro_clusters[new_key] = updated_omc
+                        updated_odb.setID(new_key)
+                        self.p_data_bubbles[new_key] = updated_odb
 
-                        df_mc_to_points.loc[pos, 'id_mc'] = new_key
-                        df_mc_to_points['id_mc']          = df_mc_to_points['id_mc'].replace((-1) * closest_omc_key, new_key)
+                        df_bubbles_to_points.loc[pos, 'id_bubble'] = new_key
+                        df_bubbles_to_points['id_bubble']          = df_bubbles_to_points['id_bubble'].replace((-1) * closest_odb_key, new_key)
                             
                     else:
-                        self.o_micro_clusters[closest_omc_key] = updated_omc
+                        self.o_data_bubbles[closest_odb_key] = updated_odb
 
                         # Outliers have our key negative
-                        df_mc_to_points.loc[pos, 'id_mc'] = (-1) * closest_omc_key
+                        df_bubbles_to_points.loc[pos, 'id_bubble'] = (-1) * closest_odb_key
                     
                     merged_status = True
                     
         if not merged_status:
             # create a new o-data_bubble by p and add it to o_data_bubbles
-            mc_from_p = MicroCluster(x=point, timestamp=self.timestamp, decaying_factor=self.decaying_factor)
+            db_from_p = DataBubble(x=point, timestamp=self.timestamp, decaying_factor=self.decaying_factor)
 
             key_o = 2
 
-            while key_o in self.o_micro_clusters:
+            while key_o in self.o_data_bubbles:
                 key_o += 1
 
-            self.o_micro_clusters[key_o] = mc_from_p
+            self.o_data_bubbles[key_o] = db_from_p
 
-            df_mc_to_points.loc[pos, 'id_mc'] = (-1) * key_o
-
-            merged_status = True
-    
-    def _merge_old(self, point):
-        # initiate merged status
-        merged_status = False
-        
-        pos = self._n_samples_seen - 1
-
-        if len(self.p_micro_clusters) != 0:
-            # try to merge p into its nearest p-micro-cluster c_p
-            closest_pmc_key = self._get_closest_cluster_key(point, self.p_micro_clusters)
-            
-            if closest_pmc_key != -1:
-                updated_pmc     = copy.deepcopy(self.p_micro_clusters[closest_pmc_key])
-                updated_pmc.insert(point, self.timestamp)
-
-                if updated_pmc.getRadius(self.timestamp) <= self.epsilon:
-                    # keep updated p-micro-cluster
-                    self.p_micro_clusters[closest_pmc_key] = updated_pmc
-                    merged_status = True
-
-                    df_mc_to_points.loc[pos, 'id_mc'] = closest_pmc_key
-
-                    if self.p_micro_clusters[closest_pmc_key].hasCenterChanged(self.m_movementThreshold, self.epsilon, self.timestamp):
-                        self.p_micro_clusters[closest_pmc_key].setStaticCenter(self.timestamp)
-
-        if not merged_status and len(self.o_micro_clusters) != 0:
-            
-            closest_omc_key = self._get_closest_cluster_key(point, self.o_micro_clusters)
-            
-            if closest_omc_key != -1:
-                updated_omc     = copy.deepcopy(self.o_micro_clusters[closest_omc_key])
-                updated_omc.insert(point, self.timestamp)
-
-                if updated_omc.getRadius(self.timestamp) <= self.epsilon:
-                    # keep updated o-micro-cluster
-                    if updated_omc.getWeight(self.timestamp) > self.mu * self.beta:
-                        # it has grown into a p-micro-cluster
-                        del self.o_micro_clusters[closest_omc_key]
-                        updated_omc.setStaticCenter(self.timestamp)
-
-                        new_key = 0
-
-                        while new_key in self.p_micro_clusters:
-                            new_key += 1
-
-                        updated_omc.setID(new_key)
-                        self.p_micro_clusters[new_key] = updated_omc
-
-                        df_mc_to_points.loc[pos, 'id_mc'] = new_key
-                        df_mc_to_points['id_mc']          = df_mc_to_points['id_mc'].replace((-1) * closest_omc_key, new_key)
-
-                    else:
-                        self.o_micro_clusters[closest_omc_key] = updated_omc                    
-
-                        # Outliers have our key negative
-                        df_mc_to_points.loc[pos, 'id_mc'] = (-1) * closest_omc_key
-
-                    merged_status = True
-                
-        if not merged_status:
-            # create a new o-data_bubble by p and add it to o_micro_clusters
-            mc_from_p = MicroCluster(x=point, timestamp=self.timestamp, decaying_factor=self.decaying_factor)
-
-            key_o = 2
-
-            while key_o in self.o_micro_clusters:
-                key_o += 1
-
-            self.o_micro_clusters[key_o] = mc_from_p
-
-            df_mc_to_points.loc[pos, 'id_mc'] = (-1) * key_o
+            df_bubbles_to_points.loc[pos, 'id_bubble'] = (-1) * key_o
 
             merged_status = True
 
         # when p is not merged and o-micro-cluster set is empty
-        # if not merged_status and len(self.o_micro_clusters) == 0:
-        #    mc_from_p = MicroCluster(x=point, timestamp=self.timestamp, decaying_factor=self.decaying_factor)
-        #    self.o_micro_clusters = {2: mc_from_p}
-        #    df_mc_to_points.loc[pos, 'id_mc'] = -2
+        #if not merged_status and len(self.o_data_bubbles) == 0:
+        #    db_from_p           = DataBubble(x=point, timestamp=self.timestamp, decaying_factor=self.decaying_factor)
+        #    self.o_data_bubbles = {2: db_from_p}
+        #    df_bubbles_to_points.loc[pos, 'id_bubble'] = -2
         #    merged_status = True
-            
+
     def _is_directly_density_reachable(self, c_p, c_q):
-        if c_p.calc_weight() > self.mu and c_q.calc_weight() > self.mu:
+        if c_p._weight(self.timestamp) > self.mu and c_q._weight(self.timestamp) > self.mu:
             # check distance of two clusters and compare with 2*epsilon
-            c_p_center = c_p.calc_center(self.timestamp)
-            c_q_center = c_q.calc_center(self.timestamp)
+            c_p_center = c_p.getRep()
+            c_q_center = c_q.getRep()
             distance   = self._distance(c_p_center, c_q_center)
             
             if distance < 2 * self.epsilon and distance <= c_p.calc_radius() + c_q.calc_radius():
                 return True
+            
         return False
 
     def _query_neighbor(self, cluster):
         neighbors = deque()
-        # scan all clusters within self.p_micro_clusters
-        for pmc in self.p_micro_clusters.values():
+        # scan all clusters within self.p_data_bubbles
+        for pmc in self.p_data_bubbles.values():
             # check density reachable and that the cluster itself does not appear in neighbors
             if cluster != pmc and self._is_directly_density_reachable(cluster, pmc):
                 neighbors.append(pmc)
@@ -2035,6 +2044,7 @@ class HDBStream(base.Clusterer):
 
         # group clusters per label
         mcs_per_label = defaultdict(deque)
+        
         for mc, label in cluster_labels.items():
             mcs_per_label[label].append(mc)
 
@@ -2042,165 +2052,264 @@ class HDBStream(base.Clusterer):
         for label, micro_clusters in mcs_per_label.items():
             # merge clusters with the same label into a big cluster
             cluster = copy.copy(micro_clusters[0])
+            
             for mc in range(1, len(micro_clusters)):
                 cluster.merge(micro_clusters[mc])
 
             clusters[label] = cluster
 
-        return len(clusters), clusters
+        return len(clusters), clusters       
 
     def _build(self):
 
-        start_time_total = time.time()
+        print("\n>> Timestamp: ", self.timestamp)
 
         self.time_period_check()
         
-        print("\n>> Timestamp: ", self.timestamp)
-        print("> count_potential", len(self.p_micro_clusters))
-        print("> count_outlier", len(self.o_micro_clusters))
+        if self.runtime:
+            start_coresg = time.time()
         
-        if len(self.p_micro_clusters) < self.m_minPoints:
+        print("> count_potential", len(self.p_data_bubbles))
+        print("> count_outlier", len(self.o_data_bubbles))
+        
+        # (self.m_minPoints / self.mu) is the wort case, when all data bubbles have the slef.mu points
+        if len(self.p_data_bubbles) < (self.m_minPoints / self.mu):
             print("no building possible since num_potential_dbs < minPoints")
             return
         
-        if self.save_partitions:
-            df_partition              = self.remove_oldest_points_in_micro_clusters_timestamp()
-            len_points                = df_partition.shape[0]
-            matrix_partitions_mcs     = [[-1 for j in range(len_points + 10)] for i in range(self.m_minPoints + 10)]
-            matrix_partitions_hdbscan = [[-1 for j in range(len_points + 10)] for i in range(self.m_minPoints + 10)]
-            
-            self.micro_clusters_to_points(self.timestamp)
-    
+        Vertex.s_idCounter = 0
+        
+        for db in self.p_data_bubbles.values():
+            db.setVertexRepresentative(None)
+            db.setStaticCenter(self.timestamp)
+        
+        G = nx.Graph()
+        
+        # MRG --
+        start_mrg = time.time()
+        mrg       = MutualReachabilityGraph(G, self.p_data_bubbles.values(), self.m_minPoints, self.timestamp)
+        mrg.buildGraph()
+        end_mrg   = time.time()
+        
+        print("> Time for MRG: ", end_mrg - start_mrg)
+        # ------
+        
+        knng = mrg.getKnngGraph()
+        
+        # MST --
+        start_mst = time.time()
+        T         = nx.minimum_spanning_tree(G)
+        mst_max   = MinimalSpaningTree(T)
+        mst_max.buildGraph()
+        end_mst   = time.time()
+        
+        print("> Time for MST:", end_mst - start_mst)
+        # ------
+        
+        csg = CoreSG(mst_max, knng, self.timestamp)
+        
+        if self.runtime:
+            self.df_runtime_final.at[self.timestamp, 'core_sg'] = (time.time() - start_coresg)
+            self.df_runtime_stream = None
+            self.df_runtime_stream = pd.DataFrame(columns=['minpts', 'core_sg', 'mst', 'dendrogram', 'selection', 'total'])
+        
+        self.m_update = Updating(mrg, mst_max, csg)
+        self.mst      = mst_max
+        
+        print("Computing Multiple Hierarchies:")
         start_hierarchies = time.time()
+        self.computeMulipleHierarchies(csg, 2, self.m_minPoints)
+        end_hierarchies   = time.time()
         
-        # MinPts_Max > MinPts_Min
-        for minpts in range(self.m_minPoints, 1, -2):
-            print("\n-------------------------------------------------------------------------------------")
-            print("MinPts: ", minpts)
-            
-            start_time_minpts = time.time()
+        if self.runtime:
+            self.df_runtime_final.at[self.timestamp, 'timestamp']            = self.timestamp
+            self.df_runtime_final.at[self.timestamp, 'data_bubbles']         = len(self.p_data_bubbles)
+            self.df_runtime_final.at[self.timestamp, 'mrg']                  = end_mrg - start_mrg
+            self.df_runtime_final.at[self.timestamp, 'mst']                  = end_mst - start_mst
+            self.df_runtime_final.at[self.timestamp, 'multiple_hierarchies'] = end_hierarchies - start_hierarchies
+        
+        print("> Time for Multiple Hierarchies: ", end_hierarchies - start_hierarchies)
+        
+        print("\n****************************************************************************************")
+        
+        # Plot MRG      -> mrg.buildAbsGraph()
+        # Plot KNNG     -> knng.buildAbsGraph(self.timestamp)
+        # Plot MST Max  -> mst_max.buildAbsGraph(self.timestamp)
+        # GraphViz MRG  -> mrg.getGraphVizString()
+        # GraphViz MST  -> mst_max.getGraphVizString()
+        # GraphViz KNNG -> knng.getGraphVizString()
+        # GraphViz CSG  -> csg.getGraphVizString()
 
-            Vertex.s_idCounter = 0
+    def computeMulipleHierarchies(self, csg, minpts_min, minpts_max):
+
+        if self.save_partitions:
+            #df_partition = df_bubbles_to_points[(df_bubbles_to_points['id_bubble'] != -1)]
+            df_partition = self.remove_oldest_points_in_bubbles_timestamp()
+            len_points   = df_partition.shape[0]
+            len_dbs      = len(csg.getVertices())
+
+            self.data_bubbles_to_points(self.timestamp)
         
-            for mc in self.p_micro_clusters.values():
-                mc.setVertexRepresentative(None)
-                mc.setStaticCenter(self.timestamp)
+            matrix_partitions         = [[-1 for j in range(len_dbs + 10)] for i in range(self.m_minPoints + 10)]
+            matrix_partitions_bubbles = [[-1 for j in range(len_points + 10)] for i in range(self.m_minPoints + 10)]
+            matrix_partitions_hdbscan = [[-1 for j in range(len_points + 10)] for i in range(self.m_minPoints + 10)]
+
+        for minpts in range(minpts_max, minpts_min - 1, -self.step):
             
-            G = nx.Graph()
-        
-            start_mrg = time.time()
-            mrg       = MutualReachabilityGraph(G, self.p_micro_clusters.values(), minpts, self.timestamp)
-            mrg.buildGraph()
-            end_mrg   = time.time()
+            start_time_total = time.time()
             
-            print("> Time for MRG: ", end_mrg - start_mrg)
+            print("\n-------------------------------------------------------------------------------------")
+            print("MinPts: " + str(minpts))
             
-            start_mst = time.time()
-            T         = nx.minimum_spanning_tree(G)
-            mst_max   = MinimalSpaningTree(T)
-            mst_max.buildGraph()
-            end_mst   = time.time()
-            
-            print("> Time for MST: ", end_mst - start_mst)
-            
-            self.m_update = Updating(mrg, mst_max)
-            
+            if minpts != minpts_max:
+                start_hierarchy = time.time()
+                csg.computeHierarchyMinPts(minpts)
+                end_hierarchy   = time.time()
+
+                print("> Time for CORE-SG edges: ", end_hierarchy - start_hierarchy)
+
+                # MST
+                start_mst   = time.time()
+                G           = csg.getGraphNetworkx()
+                T           = nx.minimum_spanning_tree(G, weight='weight')
+                mst_csg     = MinimalSpaningTree(T)
+                mst_csg.buildGraph()
+                end_mst     = time.time()
+
+                print("> Time for MST: ", end_mst - start_mst)
+
+                self.m_update = Updating(None, mst_csg, csg)
+                
+            # Dendrogram
             start_dendrogram = time.time()
-            mst              = self.m_update.getMST()
-            dendrogram       = Dendrogram(mst, minpts, self.timestamp)
+            dendrogram       = Dendrogram(self.m_update.getMST(), self.min_cluster_size, minpts, self.timestamp) # MST, miClusterSize, minPts
             dendrogram.build()
             end_dendrogram   = time.time()
             
-            end_time_minpts = time.time()
-            print("> Total Time MinPts: ", end_time_minpts - start_time_minpts)
-    
-            # Time Selection CLusters
+            end_time_total = time.time()
+            print("> Total Time MinPts: ", end_time_total - start_time_total)
+            
+            # Time Selection Clusters
             if self.save_partitions:
                 start_selection = time.time()
                 selection       = dendrogram.clusterSelection()
 
-                len_mcs           = len(mst.getVertices())
-                matrix_partitions = [-1 for j in range(len_mcs + 10)]
-
-                # Partitions HAStream MinPts
-                cont          = 1
-                partition_mcs = {}
+                # Partitions Corestream MinPts
+                cont             = 1
+                partition_bubble = {}
             
                 for n in selection:
                     it = iter(n.getVertices())
 
                     for el in it:
-                        partition_mcs[el.getMicroCluster().getID()] = cont
-                        matrix_partitions[el.getID()]               = cont
+                        partition_bubble[el.getDataBubble().getID()] = cont
+                        matrix_partitions[minpts][el.getID()]        = cont
 
                     cont += 1
 
                 cont = 0
                 for i, row in df_partition.iterrows():
-                    if row['id_mc'] in partition_mcs:
-                        matrix_partitions_mcs[minpts][cont] = partition_mcs[row['id_mc']]
+                    if row['id_bubble'] in partition_bubble:
+                        matrix_partitions_bubbles[minpts][cont] = partition_bubble[row['id_bubble']]
                     cont += 1
             
                 end_selection = time.time()
-                #print("> Time for Selection Clusters: ", end_selection - start_selection)
             
             # Partitions HDBSCAN
             if self.save_partitions:
                 start_hdbscan = time.time()
                 
                 clusterer = hdbscan.HDBSCAN(min_cluster_size=10, min_samples=minpts, match_reference_implementation = True)
-                clusterer.fit(df_partition.drop("id_mc", axis=1))
+                clusterer.fit(df_partition.drop("id_bubble", axis=1))
                 labels = clusterer.labels_
-
+            
                 p = 0
                 for i in labels:
                     matrix_partitions_hdbscan[minpts][p] = i
                     p += 1
-                    
+                
                 end_hdbscan = time.time()
 
                 # Plot HDBSCAN result
                 if self.plot:
                     self.plot_hdbscan_result(minpts, labels, df_partition)
-
-            end_time_minpts = time.time()
             
+            # Runtime
             if self.runtime:
-                self.df_runtime.at[minpts, 'minpts']         = minpts
-                self.df_runtime.at[minpts, 'micro_clusters'] = len(self.p_micro_clusters)
-                self.df_runtime.at[minpts, 'mrg']            = (end_mrg - start_mrg)
-                self.df_runtime.at[minpts, 'mst']            = (end_mst - start_mst)
-                self.df_runtime.at[minpts, 'dendrogram']     = (end_dendrogram - start_dendrogram)
-                self.df_runtime.at[minpts, 'selection']      = (end_selection - start_selection) 
-                self.df_runtime.at[minpts, 'total']          = (end_time_minpts - start_time_minpts)
+                self.df_runtime_stream.at[minpts, 'minpts']     = minpts
+                
+                if minpts != minpts_max:
+                    self.df_runtime_stream.at[minpts, 'core_sg']    = (end_hierarchy - start_hierarchy)
+                    self.df_runtime_stream.at[minpts, 'mst']        = (end_mst - start_mst)
+                else:
+                    self.df_runtime_stream.at[minpts, 'core_sg'] = 0
+                    self.df_runtime_stream.at[minpts, 'mst']     = 0
+                
+                self.df_runtime_stream.at[minpts, 'dendrogram'] = (end_dendrogram - start_dendrogram)
+                self.df_runtime_stream.at[minpts, 'selection']  = (end_selection - start_selection)
+                self.df_runtime_stream.at[minpts, 'total']      = (end_time_total - start_time_total)
             
-            if self.save_partitions:
-                self.save_partitions_final(matrix_partitions, len_mcs, mst.getVertices(), minpts)
-            
-            if self.plot:
-                self.plot_partitions(matrix_partitions, len_mcs, mst.getVertices(), minpts, df_partition)
-            
-            G          = None
-            mrg        = None
-            mst        = None
-            mst_max    = None
-            dendrogram = None
-            selection  = None
-            clusterer  = None
+            # GraphViz CORE-SG    -> csg.getGraphVizString(self.timestamp, i)
+            # GraphViz MST        -> mst_csg.getGraphVizString(self.timestamp, i)
+            # Plot MST            -> mst_csg.buildAbsGraph(self.timestamp)
+            # GraphViz Dendrogram -> if i == 200: dendrogram.getGraphVizString()
+
+        if self.save_partitions:
+            self.save_partitions_bubble_and_points_minpts(len_points, matrix_partitions_bubbles, matrix_partitions_hdbscan, minpts_min, minpts_max)
+            self.save_partitions_final(matrix_partitions, len_dbs, csg.getVertices(), minpts_min, minpts_max)
         
-        # Time final timestamp
+        if self.plot:
+            self.plot_partitions(matrix_partitions, len_dbs, minpts_min, minpts_max, df_partition)
+        
+        # reset df_bubbles_to_points['id_bubble'] in timestamp
+        #df_bubbles_to_points['id_bubble'] = -1
+    
+    def _expand_cluster(self, db, neighborhood):
+        for idx in neighborhood:
+            item = self._init_buffer[idx]
+            
+            if not item.covered:
+                item.covered = True
+                db.insert(item.x, self.timestamp)
+
+    def _get_neighborhood_ids(self, item):
+        neighborhood_ids = deque()
+        
+        for idx, other in enumerate(self._init_buffer):
+            if not other.covered:
+                #print(">> ", self._distance(item.x, other.x))
+                if self._distance(item.x, other.x) < self.epsilon:
+                    neighborhood_ids.append(idx)
+        
+        return neighborhood_ids
+    
+    def _initial_epsilon(self):
+        start = time.time()
+        
+        for item in self._init_buffer:
+            if not item.covered:
+                item.covered = True
+                neighborhood = self._get_neighborhood_ids(item)
+                
+                if len(neighborhood) > self.mu:
+                    db = DataBubble(
+                        x=item.x,
+                        timestamp=self.timestamp,
+                        decaying_factor=self.decaying_factor,
+                    )
+                    self._expand_cluster(db, neighborhood)
+                    db.setStaticCenter(self.timestamp)
+                    self.p_data_bubbles.update({len(self.p_data_bubbles): db})
+                else:
+                    item.covered = False
+                    
+        end = time.time()
+        
         if self.runtime:
-            self.df_runtime_final.at[self.timestamp, 'timestamp']            = self.timestamp
-            self.df_runtime_final.at[self.timestamp, 'micro_clusters']       = len(self.p_micro_clusters)
-            self.df_runtime_final.at[self.timestamp, 'multiple_hierarchies'] = time.time() - start_hierarchies
-
-        print(">Time Total: ", time.time() - start_time_total)
-
-        self.save_partitions_mcs_and_points_minpts(len_points, matrix_partitions_mcs, matrix_partitions_hdbscan, 2, self.m_minPoints)
+            self.df_runtime_final.at[self.timestamp, 'summarization'] = end - start
         
-        # reset df_mc_to_points['id_mc'] in timestamp
-        # df_mc_to_points['id_mc'] = -1
-        
+        print("> Time for Summarization: ", end - start)
+    
     def _initial_single_linkage(self):
         start = time.time()
         
@@ -2214,7 +2323,7 @@ class HDBStream(base.Clusterer):
         labels_visited  = np.zeros(len(labels))
         len_buffer      = len(self._init_buffer)
         count_potential = 0
-        min_mc = max_mc = 0
+        min_db = max_db = 0
         epsilon         = {}
         pos_point       = 0
         
@@ -2223,55 +2332,55 @@ class HDBStream(base.Clusterer):
             labels_visited[labels[i]] += 1
             
             if labels_visited[labels[i]] == 1:
-                mc = MicroCluster(
+                db = DataBubble(
                     x = dict(zip([j for j in range(len(self._init_buffer[i]))], self._init_buffer[i])),
                     timestamp=self.timestamp,
                     decaying_factor=self.decaying_factor,
                 )
 
-                mc.setID(labels[i])
+                db.setID(labels[i])
                 
-                self.p_micro_clusters.update({labels[i]: mc})
+                self.p_data_bubbles.update({labels[i]: db})
                 
             else:
-                self.p_micro_clusters[labels[i]].insert(dict(zip([j for j in range(len(self._init_buffer[i]))], self._init_buffer[i])), self.timestamp)
+                self.p_data_bubbles[labels[i]].insert(dict(zip([j for j in range(len(self._init_buffer[i]))], self._init_buffer[i])), self.timestamp)
 
                 if labels_visited[labels[i]] == self.mu:
                     count_potential += 1
-                if self.p_micro_clusters[labels[i]].getWeight(self.timestamp) >= self.mu:
-                    epsilon[labels[i]] = self.p_micro_clusters[labels[i]].getRadius(self.timestamp)
+                if self.p_data_bubbles[labels[i]].getN() >= self.mu:
+                    epsilon[labels[i]] = self.p_data_bubbles[labels[i]].getExtent(self.timestamp)
                 
-            max_mc = max(max_mc, self.p_micro_clusters[labels[i]].getWeight(self.timestamp))
-        
-            df_mc_to_points.at[pos_point, 'id_mc'] = labels[i]
+            max_db = max(max_db, self.p_data_bubbles[labels[i]].getN())
+    
+            df_bubbles_to_points.at[pos_point, 'id_bubble'] = labels[i]
             pos_point += 1
         
         # outliers data_bubbles
-        if count_potential != len(self.p_micro_clusters):
+        if count_potential != len(self.p_data_bubbles):
             key   = 0
             key_p = 0
             key_o = 2
             
             while labels_visited[key]:
                 if labels_visited[key] < self.mu:
-                    df_mc_to_points['id_mc'] = df_mc_to_points['id_mc'].replace(key, (-1) * key_o)
+                    df_bubbles_to_points['id_bubble'] = df_bubbles_to_points['id_bubble'].replace(key, (-1) * key_o)
                     
-                    self.o_micro_clusters[key_o] = self.p_micro_clusters[key]
-                    self.p_micro_clusters.pop(key)
+                    self.o_data_bubbles[key_o] = self.p_data_bubbles[key]
+                    self.p_data_bubbles.pop(key)
 
                     key_o += 1
                 else:
                     if key != key_p:
-                        self.p_micro_clusters[key].setID(key_p)
-                        self.p_micro_clusters[key_p] = self.p_micro_clusters.pop(key)
+                        self.p_data_bubbles[key].setID(key_p)
+                        self.p_data_bubbles[key_p] = self.p_data_bubbles.pop(key)
 
-                        if min_mc == 0:
-                            min_mc = self.p_micro_clusters[key_p].getWeight(self.timestamp)
+                        if min_db == 0:
+                            min_db = self.p_data_bubbles[key_p].getN()
                         else:
-                            min_mc = min(min_mc, self.p_micro_clusters[key_p].getWeight(self.timestamp))
+                            min_db = min(min_db, self.p_data_bubbles[key_p].getN())
                         
                         #update new key
-                        df_mc_to_points['id_mc'] = df_mc_to_points['id_mc'].replace(key, key_p)
+                        df_bubbles_to_points['id_bubble'] = df_bubbles_to_points['id_bubble'].replace(key, key_p)
 
                     key_p += 1
                 
@@ -2289,104 +2398,31 @@ class HDBStream(base.Clusterer):
         
         self.epsilon = e_max
         
-        print("> Total: ", (count_potential + len(self.o_micro_clusters)))
-        print("> MCs Potential: ", count_potential)
-        print("> Min_MC: ", min_mc)
-        print("> Max_MC: ", max_mc)
-        print("> Time for MCs: ", end - start)
+        print("> Total: ", (count_potential + len(self.o_data_bubbles)))
+        print("> Bubbles Potential: ", count_potential)
+        print("> Min_DB: ", min_db)
+        print("> Max_DB: ", max_db)
+        print("> Time for DBs: ", end - start)
         print("> Epsilon min: ", e_min)
         print("> Epsilon mean: ", e_mean)
-        print("> Epsilon max: ", e_max)   
-        
-    def _expand_cluster(self, mc, neighborhood, id):
-        for idx in neighborhood:
-            item = self._init_buffer[idx]
-            
-            if not item.covered:
-                item.covered = True
-                mc.add(item.x)
+        print("> Epsilon max: ", e_max)
 
-                p = df_mc_to_points[(df_mc_to_points['x'] == item.x[0]) & (df_mc_to_points['y'] == item.x[1])]
-                df_mc_to_points.at[p.index[0], 'id_mc'] = id
-
-    def _get_neighborhood_ids(self, item):
-        neighborhood_ids = deque()
-        
-        for idx, other in enumerate(self._init_buffer):
-            if not other.covered:
-                if self._distance(item.x, other.x) < self.epsilon:
-                    neighborhood_ids.append(idx)
-                    
-        return neighborhood_ids
-    
-    def _initial_epsilon(self):
-        start = time.time()
-        
-        for item in self._init_buffer:
-            if not item.covered:
-                item.covered = True
-                neighborhood = self._get_neighborhood_ids(item)
-                
-                if len(neighborhood) > self.mu:
-                    mc = MicroCluster(
-                        x = item.x,
-                        timestamp = self.timestamp,
-                        decaying_factor = self.decaying_factor,
-                    )
-                    
-                    id = len(self.p_micro_clusters)
-                    
-                    p = df_mc_to_points[(df_mc_to_points['x'] == item.x[0]) & (df_mc_to_points['y'] == item.x[1])]
-                    df_mc_to_points.at[p.index[0], 'id_mc'] = id
-                    
-                    self._expand_cluster(mc, neighborhood, id)
-                    mc.setStaticCenter(self.timestamp)
-                    mc.setID(id)
-                    
-                    self.p_micro_clusters.update({id: mc})
-                else:
-                    item.covered = False
-
-        # Outliers
-        for item in self._init_buffer:
-            if not item.covered:
-                item.covered = True
-                neighborhood = self._get_neighborhood_ids(item)
-                
-                mc = MicroCluster(x = item.x, timestamp = self.timestamp, decaying_factor = self.decaying_factor)
-
-                id = 2 if len(self.o_micro_clusters) == 0 else list(self.o_micro_clusters.keys())[-1] + 1
-                
-                p = df_mc_to_points[(df_mc_to_points['x'] == item.x[0]) & (df_mc_to_points['y'] == item.x[1])]
-                df_mc_to_points.at[p.index[0], 'id_mc'] = -id
-                
-                self._expand_cluster(mc, neighborhood, -id)
-                mc.setStaticCenter(self.timestamp)
-                mc.setID(id)
-                
-                self.o_micro_clusters.update({id: mc})
-                
-        end = time.time()
-        
-        # Time
-        if self.runtime:
-            self.df_runtime_final.at[self.timestamp, 'summarization'] = end - start
-        
-        print(">> Time Initial Summartization: ", end - start)
-        
     def time_period_check(self):
-        for i, p_micro_cluster_i in list(self.p_micro_clusters.items()):
-            if p_micro_cluster_i.getWeight(self.timestamp) < self.mu * self.beta:
+        # Periodic cluster removal
+            
+        for i, p_data_bubble_i in list(self.p_data_bubbles.items()):
+            if p_data_bubble_i._weight(self.timestamp) < self.mu * self.beta:
                 # c_p became an outlier and should be deleted
-                del self.p_micro_clusters[i]
+                self.p_data_bubbles.pop(i)
 
-        for j, o_micro_cluster_j in list(self.o_micro_clusters.items()):
+        for j, o_data_bubble_j in list(self.o_data_bubbles.items()):
             # calculate xi
-            xi = (2**(-self.decaying_factor * (self.timestamp - o_micro_cluster_j.creation_time + self._time_period)) - 1) / (2 ** (-self.decaying_factor * self._time_period) - 1)                
-            if o_micro_cluster_j.getWeight(self.timestamp) < xi:
-                # c_o might not grow into a p-micro-cluster, we can safely delete it
-                self.o_micro_clusters.pop(j)
+            xi = (2**(-self.decaying_factor * (self.timestamp - o_data_bubble_j.creation_time + self._time_period)) - 1) / (2 ** (-self.decaying_factor * self._time_period) - 1)
 
+            if o_data_bubble_j._weight(self.timestamp) < xi:
+                # c_o might not grow into a p-micro-cluster, we can safely delete it
+                self.o_data_bubbles.pop(j)
+        
     def learn_one(self, x, sample_weight=None):
         self._n_samples_seen += 1
         # control the stream speed
@@ -2400,6 +2436,7 @@ class HDBStream(base.Clusterer):
                 self._init_buffer.append(self.BufferItem(x, self.timestamp, False))
             else:
                 self._init_buffer.append(list(x.values()))
+            
             
             if len(self._init_buffer) == self.n_samples_init:
                 print("entrando no initial()")
@@ -2416,6 +2453,7 @@ class HDBStream(base.Clusterer):
                     self.save_runtime_timestamp()
                 
                 self.initialized = True
+                
                 del self._init_buffer
                 
             return self
@@ -2423,10 +2461,9 @@ class HDBStream(base.Clusterer):
         # Merge
         self._merge(x)
 
-        # Periodic cluster removal
         if self.timestamp > 0 and self.timestamp % self._time_period == 0:
             self.time_period_check()
-
+        
         return self
 
     def predict_one(self, sample_weight=None):        
@@ -2434,14 +2471,15 @@ class HDBStream(base.Clusterer):
         # implementation of the DBSCAN algorithm proposed by Ester et al.
         
         if not self.initialized:
+            # The model is not ready
             return 0
         
         self._build()
         
         if self.runtime:
             self.save_runtime_timestamp()
-    
-    def save_partitions_final(self,matrix_partitions, count_DB, vertices, minpts):
+            
+    def save_partitions_final(self, matrix_partitions, count_DB, vertices, min_pts_min, min_pts_max):
         m_directory = os.path.join(os.getcwd(), "results/flat_solutions")
         
         try:
@@ -2450,78 +2488,106 @@ class HDBStream(base.Clusterer):
             if not os.path.exists(sub_dir):
                 os.makedirs(sub_dir)
 
-            #for i in range(min_pts_min, min_pts_max + 1, self.step):
-            with open(os.path.join(sub_dir, "HAStream_Partitions_MinPts_" + str(minpts) + ".csv"), 'w') as writer:
-                writer.write("x,y,N,radio,color,cluster,ID\n")
-
+            if self.plot:
                 cores = ["blue", "red", "orange", "green", "purple", "brown", "pink", "olive", "cyan"]
+                
+                for i in range(min_pts_max, min_pts_min - 1, -self.step):
+                    with open(os.path.join(sub_dir, "CoreStream_Partitions_MinPts_" + str(i) + ".csv"), 'w') as writer:
+                        writer.write("x,y,N,radio,color,cluster,ID\n")
+                        
+                        for v in vertices:
+                            if matrix_partitions[i][v.getID()] == -1:
+                                writer.write(str(v.getDataBubble().getRep(self.timestamp)[0]) + "," + str(v.getDataBubble().getRep(self.timestamp)[1]) + "," + str(v.getDataBubble()._weight(self.timestamp)) + "," + str(v.getDataBubble().getExtent(self.timestamp)) + ",black,-1" + "," + str(v.getDataBubble().getID()) + "\n")
+                            else:
+                                writer.write(str(v.getDataBubble().getRep(self.timestamp)[0]) + "," + str(v.getDataBubble().getRep(self.timestamp)[1]) + "," + str(v.getDataBubble()._weight(self.timestamp)) + "," + str(v.getDataBubble().getExtent(self.timestamp)) + "," + cores[matrix_partitions[i][v.getID()] % 9] + "," + str(matrix_partitions[i][v.getID()]) + "," + str(v.getDataBubble().getID()) + "\n")
 
-                for v in vertices:
-                    if matrix_partitions[v.getID()] == -1:
-                        writer.write(str(v.getMicroCluster().getCenter(self.timestamp)[0]) + "," + str(v.getMicroCluster().getCenter(self.timestamp)[1]) + "," + str(v.getMicroCluster().getWeight(self.timestamp)) + "," + str(v.getMicroCluster().getRadius(self.timestamp)) + ",black,-1," + str(v.getMicroCluster().getID()) + "\n")
+            # Saving the partitions bubbles
+            with open(os.path.join(sub_dir, "CoreStream_All_Partitions_MinPts.csv"), 'w') as writer:
+                for j in range(count_DB):
+                    if j == 0:
+                        writer.write(str(j))
                     else:
-                        writer.write(str(v.getMicroCluster().getCenter(self.timestamp)[0]) + "," + str(v.getMicroCluster().getCenter(self.timestamp)[1]) + "," + str(v.getMicroCluster().getWeight(self.timestamp)) + "," + str(v.getMicroCluster().getRadius(self.timestamp)) + "," + cores[matrix_partitions[v.getID()] % 8] + "," + str(matrix_partitions[v.getID()]) + "," + str(v.getMicroCluster().getID()) + "\n")
+                        writer.write(", " + str(j))
+
+                writer.write("\n")
+
+                for i in range(min_pts_max, min_pts_min - 1, -self.step):
+                    for j in range(count_DB):
+                        if j == 0:
+                            writer.write(str(matrix_partitions[i][j]))
+                        else:
+                            writer.write(", " + str(matrix_partitions[i][j]))
+
+                    writer.write("\n")
 
         except FileNotFoundError as e:
             print(e)
             
-    def plot_partitions(self, matrix_partitions, count_DB, vertices, minpts, df_partition):
+    def plot_partitions(self, matrix_partitions, count_DB, min_pts_min, min_pts_max, df_partition):
         sns.set_context('poster')
         sns.set_style('white')
         sns.set_color_codes()
         
-        plot_kwds = {'s' : 2, 'linewidths':0}
+        plot_kwds = {'s' : 3, 'linewidths':0}
         
         m_directory = os.path.join(os.getcwd(), "results/plots")
         
         try:
-            sub_dir = os.path.join(m_directory, "plot_mcs_t" + str(self.timestamp))
+            sub_dir = os.path.join(m_directory, "plot_bubbles_t" + str(self.timestamp))
 
             if not os.path.exists(sub_dir):
                 os.makedirs(sub_dir)
         
-            partition = pd.read_csv('results/flat_solutions/flat_solution_partitions_t' + str(self.timestamp) + '/HAStream_Partitions_MinPts_' + str(minpts) + '.csv', sep=',')
+            for i in range(min_pts_max, min_pts_min - 1, -self.step):
+                partition = pd.read_csv('results/flat_solutions/flat_solution_partitions_t' + str(self.timestamp) + '/CoreStream_Partitions_MinPts_' + str(i) + '.csv', sep=',')
 
-            # Statistic partition-------------------------------
-            count_outlier = 0
-            count_cluster = 0
+                # Statistic partition-------------------------------
+                count_outlier = 0
+                count_cluster = 0
 
-            for j in range(len(partition)):
+                for j in range(len(partition)):
 
-                if(partition['cluster'].loc[j] == -1):
-                    count_outlier += 1
+                    if(partition['cluster'].loc[j] == -1):
+                        count_outlier += 1
 
-                if(partition['cluster'].loc[j] > count_cluster):
-                    count_cluster = partition['cluster'].loc[j]
+                    if(partition['cluster'].loc[j] > count_cluster):
+                        count_cluster = partition['cluster'].loc[j]
 
-            legend  = ""
-            legend += "MinPts: " + str(minpts) + "  "
-            legend += "| Outliers: " + str(int((count_outlier * 100.0) / len(partition))) + "%  "
-            legend += "| Clusters: " + str(count_cluster) + "  "
-            legend += "| MCs: " + str(len(partition)) + "  "
-            legend += "| Timestamp: " + str(self.timestamp)
-            # -------------------------------------------------
+                legend  = ""
+                legend += "MinPts: " + str(i) + "  "
+                legend += "| Outliers: " + str(int((count_outlier * 100.0) / len(partition))) + "%  "
+                legend += "| Clusters: " + str(count_cluster) + "  "
+                legend += "| DBs: " + str(len(partition)) + "  "
+                legend += "| Timestamp: " + str(self.timestamp)
+                # -------------------------------------------------
 
-            plt.figure(figsize = (16,12))
+                plt.figure(figsize = (16,12))
 
-            for j in range(len(partition)):        
-                plt.gca().add_patch(plt.Circle((partition['x'].loc[j], partition['y'].loc[j]), partition['radio'].loc[j], color=partition['color'].loc[j], fill=False))
+                for j in range(len(partition)):
+                    #plt.plot([partition['x'].loc[j]], [partition['y'].loc[j]], 'o', ms=partition['radio'].loc[j] * 50, mec=partition['color'].loc[j], mfc='none', mew=2)
+                    plt.gca().add_patch(plt.Circle((partition['x'].loc[j], partition['y'].loc[j]), partition['radio'].loc[j], color=partition['color'].loc[j], fill=False))
+                    #plt.text(partition['x'].loc[j], partition['y'].loc[j], str(partition['ID'].loc[j]), fontsize=10, ha='center', va='center')
             
-            #start = ((self._n_samples_seen/7000 ) - 1) * self.n_samples_init
-            #end   = start + self.n_samples_init
-
-            plt.scatter(df_partition[0], df_partition[1], c='black', **plot_kwds, label=legend)
-            #plt.scatter(data[int(start):int(end), 0], data[int(start):int(end), 1], **plot_kwds, label=legend)
-            #plt.scatter(data[0], data[1], **plot_kwds, label=legend)
-            plt.legend(bbox_to_anchor=(-0.1, 1.02, 1, 0.2), loc="lower left", borderaxespad=0, fontsize=28)
-
-            plt.savefig("results/plots/plot_mcs_t" + str(self.timestamp) + "/minpts_" + str(minpts) + ".png")
-            plt.close()
+                #start = ((self._n_samples_seen / 7000) - 1) * self.n_samples_init
+                #end   = start + self.n_samples_init
+                #plt.scatter(data[int(start):int(end), 0], data[int(start):int(end), 1], **plot_kwds, label=legend)
+                
+                plt.scatter(df_partition[0], df_partition[1], **plot_kwds, label=legend)
+                plt.legend(bbox_to_anchor=(-0.1, 1.02, 1, 0.2), loc="lower left", borderaxespad=0, fontsize=26)
+                plt.savefig("results/plots/plot_bubbles_t" + str(self.timestamp) + "/minpts_" + str(i) + ".png")
+                plt.close('all')
                 
         except FileNotFoundError as e:
             print(e)
 
     def plot_hdbscan_result(self, minpts, labels, df_partition):
+        m_directory = os.path.join(os.getcwd(), "results/plots")
+        
+        sub_dir = os.path.join(m_directory, "plot_bubbles_t" + str(self.timestamp))
+
+        if not os.path.exists(sub_dir):
+            os.makedirs(sub_dir)
+        
         sns.set_context('poster')
         sns.set_style('white')
         sns.set_color_codes()
@@ -2538,17 +2604,11 @@ class HDBStream(base.Clusterer):
 
         plt.scatter(df_partition[0], df_partition[1], c=labels, cmap='magma', **plot_kwds)
 
-        m_directory = os.path.join(os.getcwd(), "results/plots")
-        sub_dir     = os.path.join(m_directory, "plot_mcs_t" + str(self.timestamp))
-
-        if not os.path.exists(sub_dir):
-            os.makedirs(sub_dir)
+        plt.savefig("results/plots/plot_bubbles_t" + str(self.timestamp) + "/minpts _" + str(minpts) + "_hdbscan.png")
         
-        plt.savefig("results/plots/plot_mcs_t" + str(self.timestamp) + "/minpts_" + str(minpts) + "_hdbscan.png")
-        
-        plt.close()
-
-    def save_partitions_mcs_and_points_minpts(self, len_partitions, matrix_partitions_mc, matrix_partitions_hdbscan, min_pts_min, min_pts_max):
+        plt.close('all')
+    
+    def save_partitions_bubble_and_points_minpts(self, len_partitions, matrix_partitions_bubble, matrix_partitions_hdbscan, minpts_min, minpts_max):
 
         m_directory = os.path.join(os.getcwd(), "results/flat_solutions")
         
@@ -2558,8 +2618,8 @@ class HDBStream(base.Clusterer):
             if not os.path.exists(sub_dir):
                 os.makedirs(sub_dir)
 
-            # Partitions HAStream MinPts
-            with open(os.path.join(sub_dir, "all_partitions_mcs.csv"), 'w') as writer:
+            # Partitions Corestream MinPts
+            with open(os.path.join(sub_dir, "all_partitions_bubbles.csv"), 'w') as writer:
                 for j in range(len_partitions):
                     if j == 0:
                         writer.write(str(j))
@@ -2568,12 +2628,12 @@ class HDBStream(base.Clusterer):
 
                 writer.write("\n")
 
-                for i in range(min_pts_min, min_pts_max + 1, self.step):
+                for i in range(minpts_min, minpts_max + 1, self.step):
                     for j in range(len_partitions):
                         if j == 0:
-                            writer.write(str(matrix_partitions_mc[i][j]))
+                            writer.write(str(matrix_partitions_bubble[i][j]))
                         else:
-                            writer.write(", " + str(matrix_partitions_mc[i][j]))
+                            writer.write(", " + str(matrix_partitions_bubble[i][j]))
 
                     writer.write("\n")
 
@@ -2587,7 +2647,7 @@ class HDBStream(base.Clusterer):
 
                 writer.write("\n")
 
-                for i in range(min_pts_min, min_pts_max + 1, self.step):
+                for i in range(minpts_min, minpts_max + 1, self.step):
                     for j in range(len_partitions): 
                         if j == 0:
                             writer.write(str(matrix_partitions_hdbscan[i][j]))
@@ -2607,10 +2667,10 @@ class HDBStream(base.Clusterer):
                 os.makedirs(m_directory)
 
             with open(os.path.join(m_directory, "runtime_t" + str(self.timestamp) + ".csv"), 'w') as writer:
-                writer.write("minpts,mrg,mst,dendrogram,selection,total\n")
+                writer.write("minpts,core_sg,mst,dendrogram,selection,total\n")
 
-                for _, linha in self.df_runtime.iterrows():
-                    writer.write(str(linha['minpts']) + ',' + str(linha['mrg']) + ',' + str(linha['mst']) + ',' + str(linha['dendrogram']) + ',' + str(linha['selection']) + ',' + str(linha['total']) + "\n")
+                for _, linha in self.df_runtime_stream.iterrows():
+                    writer.write(str(linha['minpts']) + ',' + str(linha['core_sg']) + ',' + str(linha['mst']) + ',' + str(linha['dendrogram']) + ',' + str(linha['selection']) + ',' + str(linha['total']) + "\n")
 
         except FileNotFoundError as e:
             print(e)
@@ -2623,58 +2683,57 @@ class HDBStream(base.Clusterer):
                 os.makedirs(m_directory)
 
             with open(os.path.join(m_directory, "runtime_final_t" + str(self.timestamp) + ".csv"), 'w') as writer:
-                writer.write("timestamp,micro_clusters,summarization,multiple_hierarchies\n")
+                writer.write("timestamp,data_bubbles,summarization,mrg,mst,core_sg,multiple_hierarchies\n")
 
                 for _, linha in self.df_runtime_final.iterrows():
-                    writer.write(str(linha['timestamp']) + ',' + str(linha['micro_clusters']) + ',' + str(linha['summarization']) + ',' + str(linha['multiple_hierarchies']) + "\n")
+                    writer.write(str(linha['timestamp']) + ',' + str(linha['data_bubbles']) + ',' + str(linha['summarization']) + ',' + str(linha['mrg']) + ',' + str(linha['mst']) + ',' + str(linha['core_sg']) + ',' + str(linha['multiple_hierarchies']) + "\n")
 
         except FileNotFoundError as e:
             print(e)
-    
-    def remove_oldest_points_in_micro_clusters_timestamp(self):
+
+    def remove_oldest_points_in_bubbles_timestamp(self):
         
-        # Remove oldest objects from removed MCs
-        for i, row in df_mc_to_points.iterrows():
+        # Remove oldest objects from removed DBs
+        for i, row in df_bubbles_to_points.iterrows():
             if i <= self._n_samples_seen:
-                if row['id_mc'] not in self.p_micro_clusters and row['id_mc'] > -1:
-                    df_mc_to_points.at[i, 'id_mc'] = -1
-                elif ((-1) * row['id_mc']) not in self.o_micro_clusters and row['id_mc'] < -1:
-                    df_mc_to_points.at[i, 'id_mc'] = -1
+                if row['id_bubble'] not in self.p_data_bubbles and row['id_bubble'] > -1:
+                    df_bubbles_to_points.at[i, 'id_bubble'] = -1
+                elif ((-1) * row['id_bubble']) not in self.o_data_bubbles and row['id_bubble'] < -1:
+                    df_bubbles_to_points.at[i, 'id_bubble'] = -1
         
-        # Remove oldest objects inside of MCs
-        max_id         = max(self.p_micro_clusters.keys())
+        # Remove oldest objects inside of DBs
+        max_id         = max(self.p_data_bubbles.keys())
         labels_visited = np.zeros(max_id + 1)
         diff_points    = np.zeros(max_id + 1)
         
         for i in range(self._n_samples_seen):
-            id_mc = df_mc_to_points.loc[i, 'id_mc']
+            id_db = df_bubbles_to_points.loc[i, 'id_bubble']
             
-            if id_mc > -1:
-                if not labels_visited[id_mc] and id_mc in self.p_micro_clusters:
-                    labels_visited[id_mc] = df_mc_to_points[df_mc_to_points['id_mc'] == id_mc].shape[0]
-                    n = self.p_micro_clusters[id_mc].getWeight(self.timestamp)
+            if id_db > -1:
+                if not labels_visited[id_db] and id_db in self.p_data_bubbles:
+                    labels_visited[id_db] = df_bubbles_to_points[df_bubbles_to_points['id_bubble'] == id_db].shape[0]
+                    n = self.p_data_bubbles[id_db]._weight(self.timestamp)
                     
-                    diff_points[id_mc] = int(labels_visited[id_mc] - n)
+                    diff_points[id_db] = int(labels_visited[id_db] - n)
                     
-                if diff_points[id_mc]:
-                    diff_points[id_mc] -= 1
-                    df_mc_to_points.loc[i, 'id_mc'] = -1
+                if diff_points[id_db]:
+                    diff_points[id_db] -= 1
+                    df_bubbles_to_points.loc[i, 'id_bubble'] = -1
                     
         del labels_visited
         del diff_points 
         
-        return df_mc_to_points[df_mc_to_points['id_mc'] != -1]
-    
-    def micro_clusters_to_points(self, timestamp):
-
+        return df_bubbles_to_points[df_bubbles_to_points['id_bubble'] != -1]
+     
+    def data_bubbles_to_points(self, timestamp):
         m_directory = os.path.join(os.getcwd(), "results/datasets")
         
         try:
             if not os.path.exists(m_directory):
                 os.makedirs(m_directory)
-                        
-            df_mc_to_points[(df_mc_to_points['id_mc'] != -1)].to_csv('results/datasets/data_t' + str(self.timestamp) + '.csv', index=False)
-
+            
+            df_bubbles_to_points[(df_bubbles_to_points['id_bubble'] != -1)].to_csv('results/datasets/data_t' + str(self.timestamp) + '.csv', index=False)
+            
             if self.plot:
                 sns.set_context('poster')
                 sns.set_style('white')
@@ -2684,17 +2743,17 @@ class HDBStream(base.Clusterer):
 
                 plt.figure(figsize=(12, 10))
 
-                for key, value in self.p_micro_clusters.items():
-                    plt.gca().add_patch(plt.Circle((value.getCenter(timestamp)[0], value.getCenter(timestamp)[1]), value.getRadius(timestamp), color='red', fill=False))
+                for key, value in self.p_data_bubbles.items():
+                    plt.gca().add_patch(plt.Circle((value.getRep(timestamp)[0], value.getRep(timestamp)[1]), value.getExtent(timestamp), color='red', fill=False))
 
-                for key, value in self.o_micro_clusters.items():
-                    plt.gca().add_patch(plt.Circle((value.getCenter(timestamp)[0], value.getCenter(timestamp)[1]), value.getRadius(timestamp), color='blue', fill=False))
+                for key, value in self.o_data_bubbles.items():
+                    plt.gca().add_patch(plt.Circle((value.getRep(timestamp)[0], value.getRep(timestamp)[1]), value.getExtent(timestamp), color='blue', fill=False))
 
-                df_plot = df_mc_to_points[(df_mc_to_points['id_mc'] != -1)]
+                df_plot = df_bubbles_to_points[(df_bubbles_to_points['id_bubble'] != -1)]
 
-                cmap = plt.get_cmap('tab10', len(list(set([row['id_mc'] for i, row in df_plot.iterrows()]))))
+                cmap = plt.get_cmap('tab10', len(list(set([row['id_bubble'] for i, row in df_plot.iterrows()]))))
 
-                plt.title("Timestamp: " + str(self.timestamp) + " | # Points: " + str(df_plot.shape[0]) + " | # MCs: " + str(len(self.p_micro_clusters)), fontsize=20)
+                plt.title("Timestamp: " + str(self.timestamp) + " | # Points: " + str(df_plot.shape[0]) + " | # DBs: " + str(len(self.p_data_bubbles)), fontsize=20)
                 plt.scatter(df_plot[0], df_plot[1], c='green', **plot_kwds)
                 plt.savefig("results/datasets/plot_dataset_t" + str(self.timestamp) + ".png")
                 plt.close()
@@ -2719,16 +2778,18 @@ if __name__ == "__main__":
     
     data = data.to_numpy()
     
-    hdbstream = HDBStream(int(sys.argv[3]), step=2,
+    hdbstream = HDBStream(int(sys.argv[3]), 
+                      step=2,
                       decaying_factor=float(sys.argv[4]),
-                      beta = float(sys.argv[5]),
-                      mu=2, n_samples_init=initial_points,
-                      epsilon = 0.006,
+                      beta = 0.75,
+                      mu=2,
+                      n_samples_init=initial_points,
+                      epsilon = 0.005,
                       stream_speed=100,
-                      percent=0.15,
+                      percent=0.10,
                       method_summarization='single',
                       runtime=True,
-                      plot=True,
+                      plot=False,
                       save_partitions=True)
 
     count_points = 0
