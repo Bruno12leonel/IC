@@ -2069,15 +2069,18 @@ class HDBStream(base.Clusterer):
         if self.save_partitions:
             df_partition              = self.remove_oldest_points_in_micro_clusters_timestamp()
             len_points                = df_partition.shape[0]
+            len_mcs                   = len(self.p_micro_clusters)
+            matrix_partitions         = [[-1 for j in range(len_mcs + 10)] for i in range(self.m_minPoints + 10)]
             matrix_partitions_mcs     = [[-1 for j in range(len_points + 10)] for i in range(self.m_minPoints + 10)]
             matrix_partitions_hdbscan = [[-1 for j in range(len_points + 10)] for i in range(self.m_minPoints + 10)]
+            vertices                  = None
             
             self.micro_clusters_to_points(self.timestamp)
     
         start_hierarchies = time.time()
         
         # MinPts_Max > MinPts_Min
-        for minpts in range(self.m_minPoints, 1, -2):
+        for minpts in range(self.m_minPoints, 1, -self.step):
             print("\n-------------------------------------------------------------------------------------")
             print("MinPts: ", minpts)
             
@@ -2119,10 +2122,9 @@ class HDBStream(base.Clusterer):
     
             # Time Selection CLusters
             if self.save_partitions:
+                vertices          = mst
                 start_selection   = time.time()
                 selection         = dendrogram.clusterSelection()
-                len_mcs           = len(mst.getVertices())
-                matrix_partitions = [-1 for j in range(len_mcs + 10)]
 
                 # Partitions HAStream MinPts
                 cont          = 1
@@ -2133,7 +2135,7 @@ class HDBStream(base.Clusterer):
 
                     for el in it:
                         partition_mcs[el.getMicroCluster().getID()] = cont
-                        matrix_partitions[el.getID()]               = cont
+                        matrix_partitions[minpts][el.getID()]               = cont
 
                     cont += 1
 
@@ -2176,12 +2178,6 @@ class HDBStream(base.Clusterer):
                 self.df_runtime.at[minpts, 'selection']      = (end_selection - start_selection) 
                 self.df_runtime.at[minpts, 'total']          = (end_time_minpts - start_time_minpts)
             
-            if self.save_partitions:
-                self.save_partitions_final(matrix_partitions, len_mcs, mst.getVertices(), minpts)
-            
-            if self.plot:
-                self.plot_partitions(matrix_partitions, len_mcs, mst.getVertices(), minpts, df_partition)
-            
             G          = None
             mrg        = None
             mst        = None
@@ -2197,9 +2193,13 @@ class HDBStream(base.Clusterer):
             self.df_runtime_final.at[self.timestamp, 'multiple_hierarchies'] = time.time() - start_hierarchies
 
         print(">Time Total: ", time.time() - start_time_total)
-
-        self.save_partitions_mcs_and_points_minpts(len_points, matrix_partitions_mcs, matrix_partitions_hdbscan, 2, self.m_minPoints)
         
+        if self.save_partitions:
+            self.save_partitions_final(matrix_partitions, len_mcs, vertices.getVertices(), self.m_minPoints)
+            self.save_partitions_mcs_and_points_minpts(len_points, matrix_partitions_mcs, matrix_partitions_hdbscan, 2, self.m_minPoints)
+        
+        if self.plot:
+            self.plot_partitions(matrix_partitions, len_mcs, self.m_minPoints, df_partition)
         # reset df_mc_to_points['id_mc'] in timestamp
         # df_mc_to_points['id_mc'] = -1
         
@@ -2443,7 +2443,7 @@ class HDBStream(base.Clusterer):
         if self.runtime:
             self.save_runtime_timestamp()
     
-    def save_partitions_final(self,matrix_partitions, count_DB, vertices, minpts):
+    def save_partitions_final(self,matrix_partitions, count_MC, vertices, minpts_max):
         m_directory = os.path.join(os.getcwd(), "results/flat_solutions")
         
         try:
@@ -2452,22 +2452,42 @@ class HDBStream(base.Clusterer):
             if not os.path.exists(sub_dir):
                 os.makedirs(sub_dir)
 
-            #for i in range(min_pts_min, min_pts_max + 1, self.step):
-            with open(os.path.join(sub_dir, "HAStream_Partitions_MinPts_" + str(minpts) + ".csv"), 'w') as writer:
-                writer.write("x,y,N,radio,color,cluster,ID\n")
-
+            if self.plot:
                 cores = ["blue", "red", "orange", "green", "purple", "brown", "pink", "olive", "cyan"]
+                
+                for minpts in range(2, minpts_max + 1, self.step):
+                    with open(os.path.join(sub_dir, "HAStream_Partitions_MinPts_" + str(minpts) + ".csv"), 'w') as writer:
+                        writer.write("x,y,N,radio,color,cluster,ID\n")
 
-                for v in vertices:
-                    if matrix_partitions[v.getID()] == -1:
-                        writer.write(str(v.getMicroCluster().getCenter(self.timestamp)[0]) + "," + str(v.getMicroCluster().getCenter(self.timestamp)[1]) + "," + str(v.getMicroCluster().getWeight(self.timestamp)) + "," + str(v.getMicroCluster().getRadius(self.timestamp)) + ",black,-1," + str(v.getMicroCluster().getID()) + "\n")
+                        for v in vertices:
+                            if matrix_partitions[minpts][v.getID()] == -1:
+                                writer.write(str(v.getMicroCluster().getCenter(self.timestamp)[0]) + "," + str(v.getMicroCluster().getCenter(self.timestamp)[1]) + "," + str(v.getMicroCluster().getWeight(self.timestamp)) + "," + str(v.getMicroCluster().getRadius(self.timestamp)) + ",black,-1," + str(v.getMicroCluster().getID()) + "\n")
+                            else:
+                                writer.write(str(v.getMicroCluster().getCenter(self.timestamp)[0]) + "," + str(v.getMicroCluster().getCenter(self.timestamp)[1]) + "," + str(v.getMicroCluster().getWeight(self.timestamp)) + "," + str(v.getMicroCluster().getRadius(self.timestamp)) + "," + cores[matrix_partitions[minpts][v.getID()] % 9] + "," + str(matrix_partitions[minpts][v.getID()]) + "," + str(v.getMicroCluster().getID()) + "\n")
+
+            # Saving the partitions bubbles
+            with open(os.path.join(sub_dir, "HAStream_All_Partitions_MinPts.csv"), 'w') as writer:
+                for j in range(count_MC):
+                    if j == 0:
+                        writer.write(str(j))
                     else:
-                        writer.write(str(v.getMicroCluster().getCenter(self.timestamp)[0]) + "," + str(v.getMicroCluster().getCenter(self.timestamp)[1]) + "," + str(v.getMicroCluster().getWeight(self.timestamp)) + "," + str(v.getMicroCluster().getRadius(self.timestamp)) + "," + cores[matrix_partitions[v.getID()] % 9] + "," + str(matrix_partitions[v.getID()]) + "," + str(v.getMicroCluster().getID()) + "\n")
+                        writer.write(", " + str(j))
 
+                writer.write("\n")
+
+                for i in range(2, minpts_max + 1, self.step):
+                    for j in range(count_MC):
+                        if j == 0:
+                            writer.write(str(matrix_partitions[i][j]))
+                        else:
+                            writer.write(", " + str(matrix_partitions[i][j]))
+
+                    writer.write("\n")
+            
         except FileNotFoundError as e:
             print(e)
             
-    def plot_partitions(self, matrix_partitions, count_DB, vertices, minpts, df_partition):
+    def plot_partitions(self, matrix_partitions, count_DB, minpts_max, df_partition):
         sns.set_context('poster')
         sns.set_style('white')
         sns.set_color_codes()
@@ -2481,44 +2501,45 @@ class HDBStream(base.Clusterer):
 
             if not os.path.exists(sub_dir):
                 os.makedirs(sub_dir)
-        
-            partition = pd.read_csv('results/flat_solutions/flat_solution_partitions_t' + str(self.timestamp) + '/HAStream_Partitions_MinPts_' + str(minpts) + '.csv', sep=',')
+                
+            for minpts in range(2, minpts_max + 1, self.step):
+                partition = pd.read_csv('results/flat_solutions/flat_solution_partitions_t' + str(self.timestamp) + '/HAStream_Partitions_MinPts_' + str(minpts) + '.csv', sep=',')
 
-            # Statistic partition-------------------------------
-            count_outlier = 0
-            count_cluster = 0
+                # Statistic partition-------------------------------
+                count_outlier = 0
+                count_cluster = 0
 
-            for j in range(len(partition)):
+                for j in range(len(partition)):
 
-                if(partition['cluster'].loc[j] == -1):
-                    count_outlier += 1
+                    if(partition['cluster'].loc[j] == -1):
+                        count_outlier += 1
 
-                if(partition['cluster'].loc[j] > count_cluster):
-                    count_cluster = partition['cluster'].loc[j]
+                    if(partition['cluster'].loc[j] > count_cluster):
+                        count_cluster = partition['cluster'].loc[j]
 
-            legend  = ""
-            legend += "MinPts: " + str(minpts) + "  "
-            legend += "| Outliers: " + str(int((count_outlier * 100.0) / len(partition))) + "%  "
-            legend += "| Clusters: " + str(count_cluster) + "  "
-            legend += "| MCs: " + str(len(partition)) + "  "
-            legend += "| Timestamp: " + str(self.timestamp)
-            # -------------------------------------------------
+                legend  = ""
+                legend += "MinPts: " + str(minpts) + "  "
+                legend += "| Outliers: " + str(int((count_outlier * 100.0) / len(partition))) + "%  "
+                legend += "| Clusters: " + str(count_cluster) + "  "
+                legend += "| MCs: " + str(len(partition)) + "  "
+                legend += "| Timestamp: " + str(self.timestamp)
+                # -------------------------------------------------
 
-            plt.figure(figsize = (16,12))
+                plt.figure(figsize = (16,12))
 
-            for j in range(len(partition)):        
-                plt.gca().add_patch(plt.Circle((partition['x'].loc[j], partition['y'].loc[j]), partition['radio'].loc[j], color=partition['color'].loc[j], fill=False))
-            
-            #start = ((self._n_samples_seen/7000 ) - 1) * self.n_samples_init
-            #end   = start + self.n_samples_init
+                for j in range(len(partition)):        
+                    plt.gca().add_patch(plt.Circle((partition['x'].loc[j], partition['y'].loc[j]), partition['radio'].loc[j], color=partition['color'].loc[j], fill=False))
 
-            plt.scatter(df_partition[0], df_partition[1], c='black', **plot_kwds, label=legend)
-            #plt.scatter(data[int(start):int(end), 0], data[int(start):int(end), 1], **plot_kwds, label=legend)
-            #plt.scatter(data[0], data[1], **plot_kwds, label=legend)
-            plt.legend(bbox_to_anchor=(-0.1, 1.02, 1, 0.2), loc="lower left", borderaxespad=0, fontsize=28)
+                #start = ((self._n_samples_seen/7000 ) - 1) * self.n_samples_init
+                #end   = start + self.n_samples_init
 
-            plt.savefig("results/plots/plot_mcs_t" + str(self.timestamp) + "/minpts_" + str(minpts) + ".png")
-            plt.close()
+                plt.scatter(df_partition[0], df_partition[1], c='black', **plot_kwds, label=legend)
+                #plt.scatter(data[int(start):int(end), 0], data[int(start):int(end), 1], **plot_kwds, label=legend)
+                #plt.scatter(data[0], data[1], **plot_kwds, label=legend)
+                plt.legend(bbox_to_anchor=(-0.1, 1.02, 1, 0.2), loc="lower left", borderaxespad=0, fontsize=28)
+
+                plt.savefig("results/plots/plot_mcs_t" + str(self.timestamp) + "/minpts_" + str(minpts) + ".png")
+                plt.close()
                 
         except FileNotFoundError as e:
             print(e)
