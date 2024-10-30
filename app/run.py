@@ -2795,7 +2795,7 @@ if __name__ == "__main__":
                         stream_speed=100,
                         runtime=True,
                         plot=False,
-                        save_partitions=True)
+                        save_partitions=False)
 
     count_points = 0
 
