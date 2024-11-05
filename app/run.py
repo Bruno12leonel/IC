@@ -2151,7 +2151,6 @@ class CoreStream(base.Clusterer):
 
             self.data_bubbles_to_points(self.timestamp)
         
-            matrix_partitions         = [[-1 for j in range(len_dbs + 10)] for i in range(self.m_minPoints + 10)]
             matrix_partitions_bubbles = [[-1 for j in range(len_points + 10)] for i in range(self.m_minPoints + 10)]
             matrix_partitions_hdbscan = [[-1 for j in range(len_points + 10)] for i in range(self.m_minPoints + 10)]
 
@@ -2161,6 +2160,9 @@ class CoreStream(base.Clusterer):
             
             print("\n-------------------------------------------------------------------------------------")
             print("MinPts: " + str(minpts))
+            
+            if self.save_partitions:
+                partition = [-1 for j in range(len_dbs + 10)]
             
             if minpts != minpts_max:
                 start_hierarchy = time.time()
@@ -2190,6 +2192,8 @@ class CoreStream(base.Clusterer):
             end_time_total = time.time()
             print("> Total Time MinPts: ", end_time_total - start_time_total)
             
+            start_selection = end_selection = 0
+            
             # Time Selection Clusters
             if self.save_partitions:
                 start_selection = time.time()
@@ -2204,7 +2208,7 @@ class CoreStream(base.Clusterer):
 
                     for el in it:
                         partition_bubble[el.getDataBubble().getID()] = cont
-                        matrix_partitions[minpts][el.getID()]        = cont
+                        partition[el.getID()] = cont
 
                     cont += 1
 
@@ -2215,7 +2219,12 @@ class CoreStream(base.Clusterer):
                     cont += 1
             
                 end_selection = time.time()
-            
+                
+                self.save_partition(partition, len_dbs, csg.getVertices(), minpts)
+                
+                if self.plot:
+                    self.plot_partition(partition, len_dbs, minpts, df_partition)
+                    
             # Partitions HDBSCAN
             if self.save_partitions:
                 start_hdbscan = time.time()
@@ -2237,11 +2246,11 @@ class CoreStream(base.Clusterer):
             
             # Runtime
             if self.runtime:
-                self.df_runtime_stream.at[minpts, 'minpts']     = minpts
+                self.df_runtime_stream.at[minpts, 'minpts'] = minpts
                 
                 if minpts != minpts_max:
-                    self.df_runtime_stream.at[minpts, 'core_sg']    = (end_hierarchy - start_hierarchy)
-                    self.df_runtime_stream.at[minpts, 'mst']        = (end_mst - start_mst)
+                    self.df_runtime_stream.at[minpts, 'core_sg'] = (end_hierarchy - start_hierarchy)
+                    self.df_runtime_stream.at[minpts, 'mst']     = (end_mst - start_mst)
                 else:
                     self.df_runtime_stream.at[minpts, 'core_sg'] = 0
                     self.df_runtime_stream.at[minpts, 'mst']     = 0
@@ -2257,10 +2266,7 @@ class CoreStream(base.Clusterer):
 
         if self.save_partitions:
             self.save_partitions_bubble_and_points_minpts(len_points, matrix_partitions_bubbles, matrix_partitions_hdbscan, minpts_min, minpts_max)
-            self.save_partitions_final(matrix_partitions, len_dbs, csg.getVertices(), minpts_min, minpts_max)
-        
-        if self.plot:
-            self.plot_partitions(matrix_partitions, len_dbs, minpts_min, minpts_max, df_partition)
+            #self.save_partitions_final(matrix_partitions, len_dbs, csg.getVertices(), minpts_min, minpts_max)
         
         # reset df_bubbles_to_points['id_bubble'] in timestamp
         #df_bubbles_to_points['id_bubble'] = -1
@@ -2479,8 +2485,8 @@ class CoreStream(base.Clusterer):
         
         if self.runtime:
             self.save_runtime_timestamp()
-            
-    def save_partitions_final(self, matrix_partitions, count_DB, vertices, min_pts_min, min_pts_max):
+    
+    def save_partition(self, partition, count_DB, vertices, minpts):
         m_directory = os.path.join(os.getcwd(), "results/flat_solutions")
         
         try:
@@ -2489,42 +2495,42 @@ class CoreStream(base.Clusterer):
             if not os.path.exists(sub_dir):
                 os.makedirs(sub_dir)
 
-            if self.plot:
-                cores = ["blue", "red", "orange", "green", "purple", "brown", "pink", "olive", "cyan"]
-                
-                for i in range(min_pts_max, min_pts_min - 1, -self.step):
-                    with open(os.path.join(sub_dir, "CoreStream_Partitions_MinPts_" + str(i) + ".csv"), 'w') as writer:
-                        writer.write("x,y,N,radio,color,cluster,ID\n")
-                        
-                        for v in vertices:
-                            if matrix_partitions[i][v.getID()] == -1:
-                                writer.write(str(v.getDataBubble().getRep(self.timestamp)[0]) + "," + str(v.getDataBubble().getRep(self.timestamp)[1]) + "," + str(v.getDataBubble()._weight(self.timestamp)) + "," + str(v.getDataBubble().getExtent(self.timestamp)) + ",black,-1" + "," + str(v.getDataBubble().getID()) + "\n")
-                            else:
-                                writer.write(str(v.getDataBubble().getRep(self.timestamp)[0]) + "," + str(v.getDataBubble().getRep(self.timestamp)[1]) + "," + str(v.getDataBubble()._weight(self.timestamp)) + "," + str(v.getDataBubble().getExtent(self.timestamp)) + "," + cores[matrix_partitions[i][v.getID()] % 9] + "," + str(matrix_partitions[i][v.getID()]) + "," + str(v.getDataBubble().getID()) + "\n")
-
             # Saving the partitions bubbles
-            with open(os.path.join(sub_dir, "CoreStream_All_Partitions_MinPts.csv"), 'w') as writer:
-                for j in range(count_DB):
-                    if j == 0:
-                        writer.write(str(j))
+            if not os.path.exists(os.path.join(sub_dir, "CoreStream_All_Partitions_MinPts.csv")):
+                with open(os.path.join(sub_dir, "CoreStream_All_Partitions_MinPts.csv"), 'w') as writer:
+                    for i in range(count_DB):
+                        if i == 0:
+                            writer.write(str(i))
+                        else:
+                            writer.write(", " + str(i))
+
+                    writer.write("\n")
+                    
+            with open(os.path.join(sub_dir, "CoreStream_All_Partitions_MinPts.csv"), 'a') as writer:
+                for i in range(count_DB):
+                    if i == 0:
+                        writer.write(str(partition[i]))
                     else:
-                        writer.write(", " + str(j))
+                        writer.write(", " + str(partition[i]))
 
                 writer.write("\n")
 
-                for i in range(min_pts_max, min_pts_min - 1, -self.step):
-                    for j in range(count_DB):
-                        if j == 0:
-                            writer.write(str(matrix_partitions[i][j]))
+            if self.plot:
+                cores = ["blue", "red", "orange", "green", "purple", "brown", "pink", "olive", "cyan"]
+
+                with open(os.path.join(sub_dir, "CoreStream_Partitions_MinPts_" + str(minpts) + ".csv"), 'w') as writer:
+                    writer.write("x,y,N,radio,color,cluster,ID\n")
+
+                    for v in vertices:
+                        if partition[v.getID()] == -1:
+                            writer.write(str(v.getDataBubble().getRep(self.timestamp)[0]) + "," + str(v.getDataBubble().getRep(self.timestamp)[1]) + "," + str(v.getDataBubble()._weight(self.timestamp)) + "," + str(v.getDataBubble().getExtent(self.timestamp)) + ",black,-1" + "," + str(v.getDataBubble().getID()) + "\n")
                         else:
-                            writer.write(", " + str(matrix_partitions[i][j]))
-
-                    writer.write("\n")
-
+                            writer.write(str(v.getDataBubble().getRep(self.timestamp)[0]) + "," + str(v.getDataBubble().getRep(self.timestamp)[1]) + "," + str(v.getDataBubble()._weight(self.timestamp)) + "," + str(v.getDataBubble().getExtent(self.timestamp)) + "," + cores[partition[v.getID()] % 9] + "," + str(partition[v.getID()]) + "," + str(v.getDataBubble().getID()) + "\n")
+        
         except FileNotFoundError as e:
             print(e)
-            
-    def plot_partitions(self, matrix_partitions, count_DB, min_pts_min, min_pts_max, df_partition):
+    
+    def plot_partition(self, partition, count_DB, minpts, df_partition):
         sns.set_context('poster')
         sns.set_style('white')
         sns.set_color_codes()
@@ -2539,45 +2545,44 @@ class CoreStream(base.Clusterer):
             if not os.path.exists(sub_dir):
                 os.makedirs(sub_dir)
         
-            for i in range(min_pts_max, min_pts_min - 1, -self.step):
-                partition = pd.read_csv('results/flat_solutions/flat_solution_partitions_t' + str(self.timestamp) + '/CoreStream_Partitions_MinPts_' + str(i) + '.csv', sep=',')
+            partition = pd.read_csv('results/flat_solutions/flat_solution_partitions_t' + str(self.timestamp) + '/CoreStream_Partitions_MinPts_' + str(minpts) + '.csv', sep=',')
 
-                # Statistic partition-------------------------------
-                count_outlier = 0
-                count_cluster = 0
+            # Statistic partition-------------------------------
+            count_outlier = 0
+            count_cluster = 0
 
-                for j in range(len(partition)):
+            for j in range(len(partition)):
 
-                    if(partition['cluster'].loc[j] == -1):
-                        count_outlier += 1
+                if(partition['cluster'].loc[j] == -1):
+                    count_outlier += 1
 
-                    if(partition['cluster'].loc[j] > count_cluster):
-                        count_cluster = partition['cluster'].loc[j]
+                if(partition['cluster'].loc[j] > count_cluster):
+                    count_cluster = partition['cluster'].loc[j]
 
-                legend  = ""
-                legend += "MinPts: " + str(i) + "  "
-                legend += "| Outliers: " + str(int((count_outlier * 100.0) / len(partition))) + "%  "
-                legend += "| Clusters: " + str(count_cluster) + "  "
-                legend += "| DBs: " + str(len(partition)) + "  "
-                legend += "| Timestamp: " + str(self.timestamp)
-                # -------------------------------------------------
+            legend  = ""
+            legend += "MinPts: " + str(minpts) + "  "
+            legend += "| Outliers: " + str(int((count_outlier * 100.0) / len(partition))) + "%  "
+            legend += "| Clusters: " + str(count_cluster) + "  "
+            legend += "| DBs: " + str(len(partition)) + "  "
+            legend += "| Timestamp: " + str(self.timestamp)
+            # -------------------------------------------------
 
-                plt.figure(figsize = (16,12))
+            plt.figure(figsize = (16,12))
 
-                for j in range(len(partition)):
-                    #plt.plot([partition['x'].loc[j]], [partition['y'].loc[j]], 'o', ms=partition['radio'].loc[j] * 50, mec=partition['color'].loc[j], mfc='none', mew=2)
-                    plt.gca().add_patch(plt.Circle((partition['x'].loc[j], partition['y'].loc[j]), partition['radio'].loc[j], color=partition['color'].loc[j], fill=False))
-                    #plt.text(partition['x'].loc[j], partition['y'].loc[j], str(partition['ID'].loc[j]), fontsize=10, ha='center', va='center')
-            
-                #start = ((self._n_samples_seen / 7000) - 1) * self.n_samples_init
-                #end   = start + self.n_samples_init
-                #plt.scatter(data[int(start):int(end), 0], data[int(start):int(end), 1], **plot_kwds, label=legend)
-                
-                plt.scatter(df_partition[0], df_partition[1], **plot_kwds, label=legend)
-                plt.legend(bbox_to_anchor=(-0.1, 1.02, 1, 0.2), loc="lower left", borderaxespad=0, fontsize=26)
-                plt.savefig("results/plots/plot_bubbles_t" + str(self.timestamp) + "/minpts_" + str(i) + ".png")
-                plt.close('all')
-                
+            for j in range(len(partition)):
+                #plt.plot([partition['x'].loc[j]], [partition['y'].loc[j]], 'o', ms=partition['radio'].loc[j] * 50, mec=partition['color'].loc[j], mfc='none', mew=2)
+                plt.gca().add_patch(plt.Circle((partition['x'].loc[j], partition['y'].loc[j]), partition['radio'].loc[j], color=partition['color'].loc[j], fill=False))
+                #plt.text(partition['x'].loc[j], partition['y'].loc[j], str(partition['ID'].loc[j]), fontsize=10, ha='center', va='center')
+
+            #start = ((self._n_samples_seen / 7000) - 1) * self.n_samples_init
+            #end   = start + self.n_samples_init
+            #plt.scatter(data[int(start):int(end), 0], data[int(start):int(end), 1], **plot_kwds, label=legend)
+
+            plt.scatter(df_partition[0], df_partition[1], **plot_kwds, label=legend)
+            plt.legend(bbox_to_anchor=(-0.1, 1.02, 1, 0.2), loc="lower left", borderaxespad=0, fontsize=26)
+            plt.savefig("results/plots/plot_bubbles_t" + str(self.timestamp) + "/minpts_" + str(minpts) + ".png")
+            plt.close('all')
+
         except FileNotFoundError as e:
             print(e)
 
