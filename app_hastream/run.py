@@ -2119,6 +2119,7 @@ class HDBStream(base.Clusterer):
             
             end_time_minpts = time.time()
             print("> Total Time MinPts: ", end_time_minpts - start_time_minpts)
+            start_selection = end_selection = 0
     
             # Time Selection CLusters
             if self.save_partitions:
