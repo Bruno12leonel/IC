@@ -2,9 +2,7 @@ import sys
 import time
 from experiments import runscoressg
 
-if __name__ == "__main__":
-
-    print(sys.argv[1], sys.argv[2], sep=' ', end=' ', flush=True, epsilon = 1)
+if __name__ == "__main__":    
 
     start = time.time()
 
