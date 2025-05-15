@@ -9,7 +9,6 @@ from scipy.sparse import csr_matrix, triu
 from sklearn.neighbors import NearestNeighbors
 
 from sklearn.preprocessing import MinMaxScaler
-import pandas as pd
 
 
 from mst.mst import prim
