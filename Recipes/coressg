@@ -32,7 +32,7 @@ From: ufscar/ubuntu_mpich:latest
 
     # Compilar código Cython
     cd /opt
-    python setup.py build_ext --inplace
+    python3 setup.py build_ext --inplace
 
 %runscript
     exec "$@"
