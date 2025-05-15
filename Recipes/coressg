@@ -31,5 +31,8 @@ From: ufscar/ubuntu_mpich:latest
     pip install scipy==1.6.2
     pip install scikit-learn==0.24.1
 
+    cd /opt
+    python setup.py build_ext --inplace
+
 %runscript
     exec $@
