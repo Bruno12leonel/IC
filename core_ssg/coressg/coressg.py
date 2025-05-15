@@ -41,7 +41,7 @@ class SCORESG:
 
         # finds the number of points in the data.
         self.n = len(self.data)
-        self.epsilon = epsilon
+        self.epsilon = float(epsilon)
         self.mu = 0
         self.p_micro_clusters: typing.Dict[int, "DataBubble"] = {}
         
