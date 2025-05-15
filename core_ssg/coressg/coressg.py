@@ -35,7 +35,7 @@ class SCORESG:
 
         # load data.
         try:
-            self.data = np.unique(np.genfromtxt(datafile, delimiter=','), axis=0)
+            self.data = np.unique(np.genfromtxt(datafile, delimiter=',', skip_header=1), axis=0)
         except:
             print("Error reading the data file, please verify that the file exists.")        
 
