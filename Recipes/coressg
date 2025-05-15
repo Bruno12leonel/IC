@@ -30,7 +30,6 @@ From: ufscar/ubuntu_mpich:latest
     pip install numpy==1.20.2
     pip install scipy==1.6.2
     pip install scikit-learn==0.24.1
-    pip install
 
 %runscript
     exec $@
