@@ -5,34 +5,34 @@ From: ufscar/ubuntu_mpich:latest
     coresgdb - agrupamento sumarizado
 
 %files
-   ./core_ssg/. /opt
+    ./core_ssg/. /opt
 
 %post
-    # Change to tmp directory to download temporary files.
     cd /tmp
 
-    # Install essential software, languages and libraries. 
-    apt-get -qq -y update
-    
     export DEBIAN_FRONTEND=noninteractive
-    apt-get -qq install -y --no-install-recommends tzdata apt-utils 
+    apt-get -qq update
+    apt-get -qq install -y --no-install-recommends \
+        tzdata \
+        apt-utils \
+        python3-dev \
+        python3-pip \
+        build-essential \
+        python3-setuptools \
+        python3-wheel
 
     ln -fs /usr/share/zoneinfo/America/New_York /etc/localtime 
-    dpkg-reconfigure --frontend noninteractive  tzdata
-    
-    apt-get -qq -y update 
-    apt-get -qq install -y --no-install-recommends \
-        python3-dev \
-        python3-pip
+    dpkg-reconfigure --frontend noninteractive tzdata
 
-    pip install Cython==0.29.22
-    pip install disjoint-set==0.7.1
-    pip install numpy==1.20.2
-    pip install scipy==1.6.2
-    pip install scikit-learn==0.24.1
+    pip install --no-cache-dir Cython==0.29.22
+    pip install --no-cache-dir disjoint-set==0.7.1
+    pip install --no-cache-dir numpy==1.20.2
+    pip install --no-cache-dir scipy==1.6.2
+    pip install --no-cache-dir scikit-learn==0.24.1
 
+    # Compilar código Cython
     cd /opt
     python setup.py build_ext --inplace
 
 %runscript
-    exec $@
+    exec "$@"
